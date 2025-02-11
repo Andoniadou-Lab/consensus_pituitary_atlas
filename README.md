@@ -6,7 +6,7 @@ A resource for uniform cell-typing in the field of mouse pituitary biology. Buil
 
 
 
-# Top markers
+# Top cell-typing markers
 
 
 
