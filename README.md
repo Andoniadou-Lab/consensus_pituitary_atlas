@@ -27,5 +27,6 @@ To cite the Consensus Pituitary Atlas, for now cite the pre-print:
 
 ### First Author
 Bence Kövér
-https://twitter.com/kover_bence 
+https://bsky.app/profile/bencekover.bsky.social
+
 https://www.linkedin.com/in/ben-kover/
