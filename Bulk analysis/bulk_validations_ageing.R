@@ -140,8 +140,6 @@ limma::plotMD(fit2, column = 1, status = decideTests(fit2, p.value = 0.05)[,1],
 final_results = read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/aging/v_0.01/aging_genes.csv")
 #keep only padj < 0.05
 final_results_pan_pit <- final_results[final_results$adj.P.Val < 0.05,]
-#remove where cell_type "Mesenchymal_cells" "Pituicytes"   "Immune_cells" "Endothelial_cells"
-final_results_pan_pit <- final_results_pan_pit[!final_results_pan_pit$cell_type %in% c("Pituicytes"), ]#"Mesenchymal_cells", "Pituicytes", "Immune_cells", "Endothelial_cells"),]
 #calc avg logFC and geom avg adj pval
 final_results_pan_pit$avg_logFC <- ave(final_results_pan_pit$logFC, final_results_pan_pit$genes, FUN = mean)
 #geom avg adj pval
@@ -306,89 +304,10 @@ ggsave(paste0(figs_folder, "volcano_plot_age_de_stem_li_min3.svg"), plot = volca
 volcano_plot_with_gap <- plot_consistent_volcano_with_gap(top_genes_li_df,show_ns = TRUE,,color2 = "#FFA500", color1 = "#63B3ED")
 print(volcano_plot_with_gap)
 
-471+367
-660+451
-838/1111
-
-(282+249) / (368+295)
 
 #save plot to figs_folder
 ggsave(paste0(figs_folder, "volcano_plot_age_de_stem_li_ns_min3.png"), plot = volcano_plot_with_gap, width = 4, height = 3)
 #svg
 ggsave(paste0(figs_folder, "volcano_plot_age_de_stem_li_ns_min3.svg"), plot = volcano_plot_with_gap, width = 4, height = 3)
-
-(282+249)
-(368+295)
-
-
-
-
-
-
-
-
-
-
-
-final_results = read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/aging/v_0.01/aging_genes.csv")
-#keep only padj < 0.05
-final_results_pan_pit <- final_results[final_results$adj.P.Val < 0.05,]
-#remove where cell_type "Mesenchymal_cells" "Pituicytes"   "Immune_cells" "Endothelial_cells"
-final_results_pan_pit <- final_results_pan_pit[!final_results_pan_pit$cell_type %in% c("Pituicytes"), ]#"Mesenchymal_cells", "Pituicytes", "Immune_cells", "Endothelial_cells"),]
-#calc avg logFC and geom avg adj pval
-final_results_pan_pit$avg_logFC <- ave(final_results_pan_pit$logFC, final_results_pan_pit$genes, FUN = mean)
-#geom avg adj pval
-final_results_pan_pit$avg_adj_pval <- ave(final_results_pan_pit$adj.P.Val, final_results_pan_pit$genes, FUN = function(x) prod(x)^(1/length(x)))
-#add another column saying number of times a given gene occurs
-final_results_pan_pit$gene_count <- ave(final_results_pan_pit$genes, final_results_pan_pit$genes, FUN = length)
-#keep only those where log2fc sign is consistent
-final_results_pan_pit <- final_results_pan_pit[ave(final_results_pan_pit$logFC > 0, final_results_pan_pit$genes, FUN = function(x) length(unique(x))) == 1,]
-final_results_pan_pit <- final_results_pan_pit[!duplicated(final_results_pan_pit$genes),]
-#at least 3 gene count
-final_results_pan_pit <- final_results_pan_pit[final_results_pan_pit$gene_count >= 1,]
-final_results_pan_pit
-#keep these genes final_results_pan_pit
-genes_to_keep <- final_results_pan_pit$genes
-#keep these in toptable
-top_genes <- top_genes[top_genes$Gene %in% genes_to_keep,]
-#recalc padj using bh
-top_genes$adj.P.Val <- p.adjust(top_genes$P.Value, method = "BH")
-
-
-
-
-top_genes_li_df <- as.data.frame(topTable(fit2, coef = "YoungVsOld", n = Inf, sort.by = "P")
-)
-up_genes <- final_results_pan_pit[final_results_pan_pit$logFC > 0, "genes"]
-down_genes <- final_results_pan_pit[final_results_pan_pit$logFC < 0, "genes"]
-
-# Assuming you want to color based on the same up_genes and down_genes lists
-# Define gene direction based on presence in the lists and logFC direction
-top_genes_li_df <- top_genes_li_df %>%
-  mutate(gene_direction = case_when(
-    rownames(.) %in% up_genes ~ "Down",
-    rownames(.) %in% down_genes ~ "Up",
-    TRUE ~ "NS"
-  ))
-
-
-volcano_plot_with_gap <- plot_consistent_volcano_with_gap(top_genes_li_df)
-print(volcano_plot_with_gap)
-
-#save plot to figs_folder
-ggsave(paste0(figs_folder, "volcano_plot_age_de_stem_li_min1.png"), plot = volcano_plot_with_gap, width = 4, height = 3)
-#svg
-ggsave(paste0(figs_folder, "volcano_plot_age_de_stem_li_min1.svg"), plot = volcano_plot_with_gap, width = 4, height = 3)
-
-
-
-volcano_plot_with_gap <- plot_consistent_volcano_with_gap(top_genes_li_df,show_ns = TRUE)
-print(volcano_plot_with_gap)
-
-#save plot to figs_folder
-ggsave(paste0(figs_folder, "volcano_plot_age_de_stem_li_ns_min1.png"), plot = volcano_plot_with_gap, width = 4, height = 3)
-#svg
-ggsave(paste0(figs_folder, "volcano_plot_age_de_stem_li_ns_min1.svg"), plot = volcano_plot_with_gap, width = 4, height = 3)
-
 
 

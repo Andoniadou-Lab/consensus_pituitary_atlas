@@ -567,9 +567,9 @@ volcano_plot_with_gap <- plot_consistent_volcano_with_gap(top_genes_hou_df, y_ga
 print(volcano_plot_with_gap)
 
 #save plot to figs_folder
-ggsave(paste0(figs_folder, "volcano_plot_sex_de_min_3.png"), plot = volcano_plot_with_gap, width = 4, height = 3)
+ggsave(paste0(figs_folder, "volcano_plot_sex_de_min_3.png"), plot = volcano_plot_with_gap, width = 5, height = 3)
 #svg
-ggsave(paste0(figs_folder, "volcano_plot_sex_de_min_3.svg"), plot = volcano_plot_with_gap, width = 4, height = 3)
+ggsave(paste0(figs_folder, "volcano_plot_sex_de_min_3.svg"), plot = volcano_plot_with_gap, width = 5, height = 3)
 
 
 
@@ -581,6 +581,21 @@ print(volcano_plot_with_gap)
 ggsave(paste0(figs_folder, "volcano_plot_sex_de_min_3_ns.png"), plot = volcano_plot_with_gap, width = 4, height = 3)
 #svg
 ggsave(paste0(figs_folder, "volcano_plot_sex_de_min_3_ns.svg"), plot = volcano_plot_with_gap, width = 4, height = 3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

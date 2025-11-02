@@ -7,8 +7,8 @@ version="v_0.01"
 h5ad_file <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/pdatas0828.h5ad"
 
 # Read the .h5ad file using reticulate
-anndata <- import("anndata")
-py_index <- import("pandas")$Index
+anndata <- reticulate::import("anndata")
+py_index <- reticulate::import("pandas")$Index
 adata <- anndata$read_h5ad(h5ad_file)
 
 # Convert the data to Seurat object
@@ -30,7 +30,6 @@ seurat_object <- NormalizeData(seurat_object, normalization.method = "LogNormali
 root = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/"
 figs_folder = paste(root,"Figures/",sep="")
 
-
 meta_data = seurat_object@meta.data
 print(length(unique(meta_data$Author)))
 print(length(unique(meta_data$SRA_ID)))
@@ -39,7 +38,6 @@ print(length(unique(meta_data$SRA_ID)))
 print(sum(meta_data$psbulk_n_cells))
 expression_table = seurat_object@assays$RNA$counts
 unique(meta_data$SRA_ID)
-
 
 ###################################################
 ### Now with Limma-voom below
@@ -102,8 +100,6 @@ meta_data %>%
   #filter where Age_numeric >0
   dplyr::count(Comp_sex, name = "num_SRA_IDs")
 
-
-
 meta_data %>%
   #filter where exptype is not parse
   dplyr::filter(exptype == "sc") %>%
@@ -112,7 +108,6 @@ meta_data %>%
   #filter where Age_numeric >0
   dplyr::count(exptype, name = "num_SRA_IDs")
 
-
 meta_data %>%
   #filter where exptype is not parse
   dplyr::filter(Age_numeric > 0) %>%
@@ -121,7 +116,8 @@ meta_data %>%
   dplyr::count(exptype, name = "num_SRA_IDs")
 
 
-expression_table <- expression_table / meta_data$psbulk_n_cells
+expression_table <- sweep(expression_table, 2, meta_data$psbulk_n_cells, "/")
+
 expression_table <- expression_table * median(meta_data$psbulk_n_cells)
 
 exp_table_sc = expression_table[,meta_data$exptype == "sc"]
@@ -145,12 +141,14 @@ dge_parse <- DGEList(counts = exp_table_parse, group = meta_data_parse$assignmen
 
 #remove genes expressed in less than 10% of the samples or with less than 1000 total counts
 design <- model.matrix(~ 0 + assignments, data = meta_data)
-
-keep_genes <- filterByExpr(dge, design, min.total.count = 5000, min.prop= 0.5)
+prop1_index = which(rownames(expression_table)=="Prop1")
+prop1_sum <- sum(expression_table[prop1_index,])
+keep_genes <- filterByExpr(dge, design, min.total.count = 500,min.prop= 0.5)
+sum(keep_genes)
 
 dge <- dge[keep_genes, ]
 gene_names <- rownames(dge)
-keep_genes["Prop1"]
+keep_genes["Stat4"]
 dge_sc <- dge_sc[gene_names,]
 dge_sn <- dge_sn[gene_names,]
 dge_multi <- dge_multi[gene_names,]
@@ -161,16 +159,6 @@ rownames(dge)[order(rowSums(dge$counts), decreasing = TRUE)[1:15]]
 #also print their total count
 rowSums(dge$counts)[order(rowSums(dge$counts), decreasing = TRUE)[1:15]]
 
-lib_sizes_sc = colSums(dge_sc$counts[-order(rowSums(dge_sc$counts), decreasing = TRUE)[1:15],])
-lib_sizes_sn = colSums(dge_sn$counts[-order(rowSums(dge_sn$counts), decreasing = TRUE)[1:15],])
-lib_sizes_multi = colSums(dge_multi$counts[-order(rowSums(dge_multi$counts), decreasing = TRUE)[1:15],])
-lib_sizes_parse = colSums(dge_parse$counts[-order(rowSums(dge_parse$counts), decreasing = TRUE)[1:15],])
-
-#add these lib_size to dge
-dge_sc$samples$lib.size = lib_sizes_sc
-dge_sn$samples$lib.size = lib_sizes_sn
-dge_multi$samples$lib.size = lib_sizes_multi
-dge_parse$samples$lib.size = lib_sizes_parse
 
 #norm
 dge_sc <- calcNormFactors(dge_sc, method = "TMM")
@@ -197,20 +185,14 @@ design_sn <- model.matrix(~ 0 + assignments, data = meta_data_sn)
 design_multi <- model.matrix(~ 0 + assignments, data = meta_data_multi)
 design_parse <- model.matrix(~ 0 + assignments, data = meta_data_parse)
 
-#running voom
-fit_sc <- voom(dge_sc, design_sc, plot=TRUE)
-fit_sn <- voom(dge_sn, design_sn, plot=TRUE)
-fit_multi <- voom(dge_multi, design_multi, plot=TRUE)
-fit_parse <- voom(dge_parse, design_parse, plot=TRUE)
+
 fit <- voom(dge, design, plot=TRUE)
 
-#is fit the same as cbind(fit_multi,fit_sc,fit_sn)
-fit2=cbind(fit_multi,fit_parse,fit_sc,fit_sn)
 
 #double running this based on
 #https://support.bioconductor.org/p/114663/
 #first changing the weights to the separate ones
-fit$weights <- fit2$weights
+
 corfit <- duplicateCorrelation(fit, design, block=meta_data$exptype)
 corfit$consensus.correlation
 fit <- voom(dge, design, plot=TRUE, block=meta_data$exptype, correlation=corfit$consensus.correlation)
@@ -241,7 +223,7 @@ coef_df$gene = rownames(coef_df)
 # Create contrast
 contrast <- makeContrasts(
   #assignmentsCorticotrophs - assignmentsMelanotrophs, 
-  assignmentsSomatotrophs-assignmentsStem_cells,
+  assignmentsThyrotrophs-assignmentsCorticotrophs,
   levels = design
 )
 
@@ -251,18 +233,21 @@ diff_expression <- contrasts.fit(fit, contrast)
 diff_expression <- eBayes(diff_expression, trend = TRUE)
 
 # Get top differentially expressed genes
-top_genes <- topTable(diff_expression, number = Inf, sort.by = "P")
+top_genes <- topTable(diff_expression, number = Inf, sort.by = "P",adjust.method="BH", lfc=0.5)
 top_genes$genes <- rownames(top_genes)
-print(head(top_genes))
-
+print(head(top_genes,20))
+#add col abs_logFC
+top_genes <- top_genes %>% mutate(abs_logFC = abs(logFC))
+#hist
+hist(top_genes$abs_logFC, breaks=50, main="lfc distribution", xlab="abs logFC")
+#how many sig
+top_genes %>% filter(adj.P.Val < 0.05)
 
 # Initialize a list to store upregulated genes for each cell type
 all_upregulated_genes <- list()
 
-
 # Get unique cell types
 celltypes <- unique(meta_data$assignments)
-
 
 # Function to compare one cell type against all others
 compare_celltype <- function(celltype, other_celltypes, design, fit, log2fc=-Inf) {
@@ -282,7 +267,7 @@ compare_celltype <- function(celltype, other_celltypes, design, fit, log2fc=-Inf
     
     fit2 <- eBayes(contrasts.fit(fit, contrast))
     
-    sig_genes <- topTable(fit2, number = Inf) %>%
+    sig_genes <- topTable(fit2, number = Inf, adjust.method="BH", lfc=0.5) %>%
       rownames_to_column("gene") %>%
       filter(adj.P.Val < 0.05 & logFC > log2fc) %>%
       mutate(group1 = celltype,
@@ -347,7 +332,7 @@ grouping_8 <- list(list("Thyrotrophs"), list("Lactotrophs", "Somatotrophs"))
 #Processing groupings
 #############
 # Function to find significant genes in the same direction across all comparisons in a grouping
-find_significant_genes <- function(all_comparisons, groupings1, groupings2, adj_p_threshold = 0.05) {
+find_significant_genes <- function(all_comparisons, groupings1, groupings2, adj_p_threshold = 0.01) {
   # Create all pairwise comparisons
   comps_left <- c()
   comps_right <- c()
@@ -465,41 +450,44 @@ for (i in 1:8) {
 #add a column to grouping_results called TF which is 1 if in tf_list
 all_results <- all_results %>% mutate(TF = ifelse(gene %in% tf_list, 1, 0))
 table(all_results$direction,all_results$grouping)
+
 #save to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/
 write_csv(all_results, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/grouping_lineage_markers_0909.csv")
 write_csv(all_results, paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/markers/",version,"/grouping_lineage_markers.csv"))
 write_csv(all_results, paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/heatmap/",version,"/rna_grouping_lineage_markers.csv"))
 
-
 #load lineage markers
 all_results <- read_csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/grouping_lineage_markers_0909.csv")
 table(all_results$grouping,all_results$direction)
-        
 
 library(edgeR)
 library(Matrix)
 
-
-
-# Apply normalization
 normalize_expression <- function(expression_table_original, dge_original) {
   norm_factors <- dge_original$samples$norm.factors
   lib_sizes <- dge_original$samples$lib.size
   
-  # divide by effective library size
-  normalized_expression <- t(t(expression_table_original) / (norm_factors*lib_sizes))
+  eff_lib_sizes <- norm_factors * lib_sizes
+  
+  normalized_expression <- sweep(expression_table_original, 2, eff_lib_sizes, FUN = "/")
+  
   # Multiply back by 10^6
   normalized_expression <- t(t(normalized_expression) * 10^6)
   
   return(normalized_expression)
 }
 
-
-
 # Normalize the data
+expression_table_original <- as(expression_table_original, "CsparseMatrix")
+
 normalized_expression <- normalize_expression(expression_table_original, dge_original)
 
-writeMM(normalized_expression, paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/expression/",version,"/normalized_data.mtx"))
+normalized_expression <- as(normalized_expression, "CsparseMatrix")
+
+#first 5x5 values
+normalized_expression[1:5,1:5]
+
+Matrix::writeMM(normalized_expression, paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/expression/",version,"/normalized_data.mtx"))
 write_csv(meta_data_original, paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/expression/",version,"/meta_data.csv"))
 write.table(rownames(normalized_expression), paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/expression/",version,"/genes.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
 write.table(colnames(normalized_expression), paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/expression/",version,"/datasets.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
@@ -864,12 +852,6 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 #and svg
 ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/umap_multi.svg", p1, width = 6, height = 6)
 
-
-
-
-
-
-
 ##################
 ##################
 ##################
@@ -976,8 +958,8 @@ rownames(meta_data) <- meta_data$index
 #divide values in each column by respective value in meta_data meta_data$psbulk_n_cells
 boxplot(colSums(expression_table), main = "Boxplot of colSums of expression_table", ylab = "log10(colSums)", log = "y")
 
-expression_table <- expression_table / meta_data$psbulk_n_cells
-#multiply back by 1000
+expression_table <- sweep(expression_table, 2, meta_data$psbulk_n_cells, "/")
+
 expression_table <- expression_table * median(meta_data$psbulk_n_cells)
 
 #make boxplot of colsums log y
@@ -994,7 +976,7 @@ design <- model.matrix(~0 + assignments +  assignments:Age_numeric, data = meta_
 
 
 #remove genes expressed in less than 10% of the samples or with less than 1000 total counts
-keep_genes <- filterByExpr(dge, design, min.total.count = 3000, min.prop= 0.2)
+keep_genes <- filterByExpr(dge, design, min.total.count = 500,min.prop= 0.2)
 
 dge <- dge[keep_genes, ]
 gene_names <- rownames(dge)
@@ -1005,10 +987,6 @@ rownames(dge)[order(rowSums(dge$counts), decreasing = TRUE)[1:15]]
 rowSums(dge$counts)[order(rowSums(dge$counts), decreasing = TRUE)[1:15]]
 
 
-lib_sizes = colSums(dge$counts[-order(rowSums(dge$counts), decreasing = TRUE)[1:15],])
-
-#add these lib_size to dge
-dge$lib.size = lib_sizes
 
 #norm
 dge <- calcNormFactors(dge, method = "TMM")
@@ -1018,12 +996,18 @@ colnames(design)<-make.names(colnames(design))
 fit <- voom(dge, design, plot=TRUE)
 fit <- lmFit(fit, design)
 
+
+background_genes <- rownames(dge)
+#save to /Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/enrichment/aging_enrichment/aging_analysis_summary.csv
+write.csv(background_genes, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/enrichment/aging_enrichment/sc_aging_background_genes.csv", row.names = FALSE)
+
 #####
 #Age effect
 #####
 
 contrast <- makeContrasts(
   #assignmentsStem_cells - assignmentsLactotrophs, 
+  #assignmentsGonadotrophs.Age_numeric,
   assignmentsStem_cells.Age_numeric,
   levels = design
 )
@@ -1033,9 +1017,12 @@ diff_expression <- contrasts.fit(fit, contrast)
 diff_expression <- eBayes(diff_expression, robust=TRUE)
 
 # Get top differentially expressed genes
-top_genes <- topTable(diff_expression, number = Inf)
+top_genes <- topTable(diff_expression, number = Inf, adjust.method="bonf", lfc=0.5)
 top_genes$genes <- rownames(top_genes)
 print(rownames((top_genes)))
+
+#how many sig
+print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
 
 
 cpdb <- read_csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/gene_group_annotation/v_0.01//cpdb.csv")
@@ -1146,8 +1133,12 @@ for(coef in coefs) {
   diff_expression <- eBayes(diff_expression, robust=TRUE)
   
   # Get top genes
-  top_genes <- topTable(diff_expression, number = Inf)
+  top_genes <- topTable(diff_expression, number = Inf,adjust.method="bonf")
   top_genes$genes <- rownames(top_genes)
+  #print cell type
+  print(get_cell_type(coef))
+  #print number of significant genes
+  print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
   
   # Add cell type column
   top_genes$cell_type <- get_cell_type(coef)
@@ -1173,6 +1164,8 @@ final_results <- read.csv(paste0("/Users/k23030440/Library/CloudStorage/OneDrive
 
 #keep only padj < 0.05
 final_results_pan_pit <- final_results[final_results$adj.P.Val < 0.05,]
+#filter log2fc for abs 0.5
+final_results_pan_pit <- final_results_pan_pit[abs(final_results_pan_pit$logFC) >= 0.5,]
 #remove where cell_type "Mesenchymal_cells" "Pituicytes"   "Immune_cells" "Endothelial_cells"
 final_results_pan_pit <- final_results_pan_pit[!final_results_pan_pit$cell_type %in% c("Mesenchymal_cells", "Pituicytes", "Immune_cells", "Endothelial_cells"),]
 #calc avg logFC and geom avg adj pval
@@ -1190,6 +1183,13 @@ final_results_pan_pit
 #order according to gene_count
 final_results_pan_pit <- final_results_pan_pit[order(final_results_pan_pit$gene_count, decreasing = TRUE),]
 
+#save these genes as csv
+#/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/DE/pan_pituitary_ageing.csv
+write.csv(final_results_pan_pit, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/pan_pituitary_ageing.csv")
+#clipboard gene names
+unique_pan_pit_genes = final_results_pan_pit$genes
+library(clipr)
+write_clip(paste(unique_pan_pit_genes, collapse = "\n"))
 
 #I have this df called final_results with columns logFC, genes, adj.P.Val and cell_type. Make a heatmap, where tiles are outline wiht red if significant and colored with light to dark blue based on logFC. Make columns cell_types and rows genes. Specifically look at Ifit3, Mki67 and Lef1
 
@@ -1200,11 +1200,12 @@ library(ggplot2)
 library(tidyr)
 
 # Highlight specific genes of interest
-genes_of_interest <- c("Wnt10a","Fzd2","Fzd9","Wif1","Lef1","Rspo4","Sfrp1","Sfrp2","Sfrp5","Apcdd1","Tnfrsf19","Sostdc1",
-                       "Cdk1","H19","E2f8","Mki67","Top2a","Ube2c","Aurkb",
-                       "Lcn2","Cxcl13","Ccl5","H2-Aa","H2-Ab1","Ifit3","Ifit3b","C1qc","Il1b","Il6")
+genes_of_interest <- c("Wnt10a","Wnt16","Wnt6","Fzd2","Fzd9","Fzd10","Wif1","Lef1","Rspo4","Sfrp1","Sfrp2","Sfrp5","Apcdd1","Tnfrsf19","Sostdc1",
+                       "Cdk1","Cdk2","Ccna1","Ccnb1","H19","E2f8","E2f1","Mki67","Top2a","Ube2c","Aurkb",
+                       "Lcn2","Cxcl13","Ccl5","H2-Aa","H2-K1","H2-Ab1","Ifit3","Ifit3b","C1qc","C1qa","Il1b","Il6","Il18","Il17rc","Il15ra","Igha")
                        
-                       
+#keep only where genes in final_results_pan_pit
+genes_of_interest <- genes_of_interest[genes_of_interest %in% final_results_pan_pit$genes]
 # Create the heatmap
 plot <- final_results %>%
   # Filter to only include genes of interest
@@ -1229,7 +1230,7 @@ plot <- final_results %>%
                        fill = "white",
                        size = 1,
                        linetype = 1,
-                       linewidth = 3
+                       linewidth = 2
                      ))) +
   scale_size_identity() +
   # Customize theme
@@ -1284,7 +1285,7 @@ plot_data <- data.frame(
   decreased_genes = sapply(age_genes, function(x) x$decreased)
 )
 #remove Immune_cells
-plot_data <- plot_data[!grepl("Immune_cells", plot_data$cell_type), ]
+#plot_data <- plot_data[!grepl("Immune_cells", plot_data$cell_type), ]
 # Reshape the data for plotting
 plot_data_long <- rbind(
   data.frame(
@@ -1363,8 +1364,8 @@ output_dir <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondo
 ggsave(
   filename = file.path(output_dir, "age_related_genes.png"),
   plot = plt,
-  width = 6,
-  height = 5,
+  width = 5.5,
+  height = 6,
   dpi = 300
 )
 
@@ -1372,15 +1373,11 @@ ggsave(
 ggsave(
   filename = file.path(output_dir, "age_related_genes.svg"),
   plot = plt,
-  width = 6,
-  height = 5
+  width = 5.5,
+  height = 6
 )
 
 print(plt)
-
-
-
-
 
 
 #############
@@ -1458,10 +1455,6 @@ meta_data <- meta_data[meta_data$assignments != "Erythrocytes",]
 
 meta_data$Age_numeric <- as.numeric(as.character(meta_data$Age_numeric))
 meta_data$Comp<- as.numeric(as.character(meta_data$Comp_sex))
-#shift to 0 and log10
-#remove any with values before 0 
-expression_table <- expression_table[,meta_data$Age_numeric >= 10]
-meta_data <- meta_data[meta_data$Age_numeric >= 10,]
 
 #keep only samples between 20 and 150
 expression_table <- expression_table[,meta_data$Age_numeric <= 150]
@@ -1480,6 +1473,11 @@ meta_data$exptype[meta_data$`10X version` == "Parse_WT"] <- "parse"
 expression_table <- expression_table[,meta_data$exptype != "parse"]
 meta_data <- meta_data[meta_data$exptype != "parse",]
 
+#remove multi_rna
+#expression_table <- expression_table[,meta_data$exptype != "multi_rna"]
+#meta_data <- meta_data[meta_data$exptype != "multi_rna",]
+
+
 
 # Ensure valid column names for assignments and exptype
 meta_data$assignments <- make.names(meta_data$assignments)
@@ -1495,25 +1493,29 @@ meta_data$Sex <- gsub("[^A-Za-z0-9_]", "", meta_data$Sex)
 
 #order meta_data based on exptype
 #reorder expression_table based on meta_data index
+meta_data$sample = colnames(expression_table)
+
+
 expression_table <- expression_table[,order(meta_data$exptype)]
 meta_data <- meta_data[order(meta_data$exptype),]
+
+
 #print all values
 print(meta_data$exptype)
 #add a new column called index
-meta_data$index <- 1:nrow(meta_data)
+meta_data$index <- colnames(expression_table)
 #make index the rownames
 rownames(meta_data) <- meta_data$index
+expression_table[c(1:5),c(1:5)]
+meta_data$psbulk_n_cells[c(1:5)]
+expression_table <- sweep(expression_table, 2, meta_data$psbulk_n_cells, "/")
+expression_table[c(1:5),c(1:5)]
 
-
-#divide values in each column by respective value in meta_data meta_data$psbulk_n_cells
-boxplot(colSums(expression_table), main = "Boxplot of colSums of expression_table", ylab = "log10(colSums)", log = "y")
-
-expression_table <- expression_table / meta_data$psbulk_n_cells
-#multiply back by 1000
 expression_table <- expression_table * median(meta_data$psbulk_n_cells)
+expression_table[c(1:5),c(1:5)]
 
-#make boxplot of colsums log y
-boxplot(colSums(expression_table), main = "Boxplot of colSums of expression_table", ylab = "log10(colSums)", log = "y")
+
+
 
 
 exp_table_sc = expression_table[,meta_data$exptype == "sc"]
@@ -1521,6 +1523,24 @@ meta_data_sc = meta_data[meta_data$exptype == "sc",]
 
 exp_table_sn = expression_table[,meta_data$exptype == "sn"]
 meta_data_sn = meta_data[meta_data$exptype == "sn",]
+
+
+#keep only gonadotrophs
+gonadotrophs_exp_table = expression_table[,meta_data$assignments == "Gonadotrophs"]
+gonadotrophs_meta_data = meta_data[meta_data$assignments == "Gonadotrophs",]
+
+#plot Gal for male and female
+gal_index = which(rownames(gonadotrophs_exp_table) == "Gal")
+male_index = which(gonadotrophs_meta_data$Comp_sex==1)
+female_index = which(gonadotrophs_meta_data$Comp_sex==0)
+
+male_gal = gonadotrophs_exp_table[gal_index,male_index]
+male_gal
+gonadotrophs_meta_data$SRA_ID[male_index]
+
+female_gal = gonadotrophs_exp_table[gal_index,female_index]
+female_gal
+gonadotrophs_meta_data$SRA_ID[female_index]
 
 exp_table_multi = expression_table[,meta_data$exptype == "multi_rna"]
 meta_data_multi = meta_data[meta_data$exptype == "multi_rna",]
@@ -1541,10 +1561,12 @@ library(limma)
 library(edgeR)
 design <- model.matrix(~0 + assignments +  assignments:Sex, data = meta_data)
 #make ecdf of total counts of genes
-plot(ecdf(rowSums(dge$counts)), main = "ecdf of total counts of genes", xlab = "Total counts", ylab = "Proportion of genes")
+#plot(ecdf(rowSums(dge$counts)), main = "ecdf of total counts of genes", xlab = "Total counts", ylab = "Proportion of genes")
 #remove genes expressed in less than 10% of the samples or with less than 1000 total counts
-keep_genes <- filterByExpr(dge, design, min.total.count = 3000, min.prop= 0.2)
-
+keep_genes <- filterByExpr(dge, design, min.total.count = 500,min.prop= 0.2)
+#look at Gpr101
+keep_genes[rownames(dge) == "Megf11"]
+print(sum(keep_genes))
 dge <- dge[keep_genes, ]
 dim(dge)
 gene_names <- rownames(dge)
@@ -1553,16 +1575,7 @@ dge_sn <- dge_sn[gene_names,]
 dge_multi <- dge_multi[gene_names,]
 #dge_parse <- dge_parse[gene_names,]
 
-lib_sizes_sc = colSums(dge_sc$counts[-order(rowSums(dge_sc$counts), decreasing = TRUE)[1:15],])
-lib_sizes_sn = colSums(dge_sn$counts[-order(rowSums(dge_sn$counts), decreasing = TRUE)[1:15],])
-lib_sizes_multi = colSums(dge_multi$counts[-order(rowSums(dge_multi$counts), decreasing = TRUE)[1:15],])
-#lib_sizes_parse = colSums(dge_parse$counts[-order(rowSums(dge_parse$counts), decreasing = TRUE)[1:15],])
 
-#add these lib_size to dge
-dge_sc$samples$lib.size= lib_sizes_sc
-dge_sn$samples$lib.size = lib_sizes_sn
-dge_multi$samples$lib.size = lib_sizes_multi
-#dge_parse$samples$lib.size = lib_sizes_parse
 
 #norm
 dge_sc <- calcNormFactors(dge_sc, method = "TMM")
@@ -1593,24 +1606,14 @@ meta_data$assignments <- as.factor(meta_data$assignments)
 # Create the design matrix
 design <- model.matrix(~0 + assignments +  assignments:Sex, data = meta_data)
 colnames(design)
-#  + assignments:Sex, data = meta_data)
+
 colnames(design)<-make.names(colnames(design))
-
-
-fit_sc <- voom(dge_sc, design_sc, plot=TRUE)
-fit_sn <- voom(dge_sn, design_sn, plot=TRUE)
-fit_multi <- voom(dge_multi, design_multi, plot=TRUE)
-#fit_parse <- voom(dge_parse, design_parse, plot=TRUE)
-fit2=cbind(fit_multi,
-           #fit_parse,
-           fit_sc,fit_sn)
 
 #double running this based on
 #https://support.bioconductor.org/p/114663/
 
 
 fit <- voom(dge, design, plot=TRUE)
-fit$weights <- fit2$weights
 corfit <- duplicateCorrelation(fit, design, block=meta_data$exptype)
 corfit$consensus.correlation
 fit <- voom(dge, design, plot=TRUE, block=meta_data$exptype, correlation=corfit$consensus.correlation)
@@ -1639,15 +1642,16 @@ contrast <- makeContrasts(
   levels = design
 )
 
-
 # Compute differential expression
 diff_expression <- contrasts.fit(fit, contrast)
-diff_expression <- eBayes(diff_expression, robust=TRUE)
+diff_expression <- eBayes(diff_expression)
 
 # Get top differentially expressed genes
-top_genes <- topTable(diff_expression, number = Inf)
+top_genes <- topTable(diff_expression, number = Inf,lfc=1, adjust.method="BH")
 top_genes$genes <- rownames(top_genes)
 print(rownames((top_genes)))
+#how many sig
+print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
 
 cpdb <- read_csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/gene_group_annotation/v_0.01//cpdb.csv")
 #keep where category is TF and keep gene
@@ -1693,7 +1697,7 @@ for (cell_type in cell_types) {
   diff_expr <- eBayes(diff_expr, robust=TRUE)
   
   # Get results
-  results <- topTable(diff_expr, number=Inf)
+  results <- topTable(diff_expr, number=Inf,adjust.method="BH", lfc=1)
   
   #filter out this where Avg_exp is 0
   results <- results[results$AveExpr > 0,]
@@ -1802,7 +1806,7 @@ plt = ggplot(plot_data_long, aes(x = cell_type, y = count, fill = sex)) +
   )
 
 plt
-
+# Save the plot as PNG and SVG
 stem_sex_spec = sex_specific_genes$Stem_cells$female
 
 
@@ -1835,7 +1839,7 @@ for (cell_type in cell_types) {
   diff_expr <- eBayes(diff_expr, robust=TRUE)
   
   # Get results
-  results <- topTable(diff_expr, number=Inf)
+  results <- topTable(diff_expr, number=Inf,adjust.method="BH")
   top_genes <- results
   top_genes$cell_type <- gsub("assignments", "", gsub(".SexX1", "", cell_type))
   top_genes$gene <- rownames(top_genes)
@@ -1859,7 +1863,18 @@ df
 
 #write
 write.csv(df,"/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes.csv")
-write.csv(df,"/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/sex_dimorphism/v_0.01/sexually_dimorphic_genes.csv")
+#only save those with abs log2fc > 1
+df_final <- df %>% filter(abs(logFC) > 1)
+df_final  <- df_final  %>%
+  select(-occurs)
+
+df_final <- df_final  %>%
+  group_by(gene) %>%
+  summarize(occurs = n_distinct(cell_type)) %>%
+  left_join(df_final , by = "gene")
+
+df_final 
+write.csv(df_final,"/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/sex_dimorphism/v_0.01/sexually_dimorphic_genes.csv")
 
 write.csv(df_raw,"/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes_raw.csv")
 
@@ -1885,8 +1900,29 @@ df_common_male <- df %>%
 
 
 df_sex_genes_filtered <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes.csv")
-#keep only where occurs >=7
-df_sex_genes_filtered <- df_sex_genes_filtered %>% filter(occurs > 5)
+#keep where logfc > 1
+dim(df_sex_genes_filtered )
+df_sex_genes_filtered <- df_sex_genes_filtered %>% filter(abs(logFC) > 1)
+df_sex_genes_filtered <- df_sex_genes_filtered %>%
+  select(-occurs)
+df_sex_genes_filtered  <- df_sex_genes_filtered   %>%
+  group_by(gene) %>%
+  summarize(occurs = n_distinct(cell_type)) %>%
+  left_join(df_sex_genes_filtered, by = "gene")
+
+df_sex_genes_filtered <-df_sex_genes_filtered %>% filter(occurs > 4)
+
+#keep only those where sign is same direction in all cases
+df_sex_genes_filtered <- df_sex_genes_filtered %>%
+  group_by(gene) %>%
+  filter(all(logFC > 0) | all(logFC < 0)) %>%
+  ungroup()
+
+#how many unique genes
+print(df_sex_genes_filtered %>% distinct(gene) %>% nrow())
+
+
+"Gal" %in%  df_sex_genes_filtered$gene
 df_sex_genes <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes_raw.csv")
 #keep genes in df_sex_filtered
 df_sex_genes <- df_sex_genes %>% filter(gene %in% df_sex_genes_filtered$gene)
@@ -1894,18 +1930,45 @@ df_sex_genes <- df_sex_genes %>% filter(gene %in% df_sex_genes_filtered$gene)
 df_sex_genes <- df_sex_genes %>%
   group_by(gene) %>%
   mutate(avg_log2fc = mean(logFC, na.rm = TRUE)) %>%
-  ungroup() %>%
-  arrange(desc(avg_log2fc))
+  ungroup()
 
 #first 20 gene names
 genes_of_interest <- unique(df_sex_genes$gene)
 
 final_results <- df_sex_genes
+"Gal" %in% genes_of_interest
 
 # Load required packages
 library(dplyr)
 library(ggplot2)
 library(tidyr)
+
+
+#only keep those that are avg abs logfc > 1
+final_results <- final_results %>%
+  group_by(gene) %>%
+  mutate(avg_abs_log2fc = mean(abs(logFC), na.rm = TRUE)) %>%
+  ungroup()
+
+#remove genes starting with gm or ens !grepl("^Gm|^Gm[0-9]+$|^ENS" !grepl("Rik$"
+final_results <- final_results %>% filter(!grepl("^Gm|^ENS|Rik$", gene))
+
+#keep top 30 genes with highest abs logFC
+final_results <- final_results %>% arrange(desc(avg_abs_log2fc))
+genes_of_interest1 <- unique(final_results$gene)[1:30]
+
+final_results<- final_results %>% filter(gene %in% genes_of_interest1)
+
+final_results <- final_results %>% arrange(desc(avg_log2fc))
+genes_of_interest <- unique(final_results$gene)[1:30]
+
+#remove fshb
+genes_of_interest <- genes_of_interest[genes_of_interest != "Fshb"]
+
+
+
+
+
 
 #-1 the logFC
 final_results$logFC <- -final_results$logFC
@@ -1934,7 +1997,7 @@ plot <- final_results %>%
                        fill = "white",
                        size = 1,
                        linetype = 1,
-                       linewidth = 3
+                       linewidth = 2
                      ))) +
   scale_size_identity() +
   # Customize theme
@@ -1958,6 +2021,14 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes_heatmap.svg", 
        plot = plot, 
        width = 6.5, height = 5.5, dpi = 300)
+
+
+
+
+
+
+
+
 
 
 
@@ -2012,9 +2083,8 @@ write.csv(all_markers_df, "/Users/k23030440/Library/CloudStorage/OneDrive-King's
 
 all_markers_df <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/cell_typing_markers.csv")
 
-#print top 5 marker for each cell type 
-all_markers_df <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/cell_typing_markers.csv")
 coefs_table <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/coef.csv")
+
 rownames(coefs_table) <- coefs_table$X
 #remove first col
 coefs_table <- coefs_table[, -1]
@@ -2031,8 +2101,6 @@ for (i in 1:nrow(all_markers_df)) {
 #keep those with at least 5 > avg_exp
 #all_markers_df <- all_markers_df %>% filter(avg_exp > 5)
 
-
-
 celltypes <- unique(all_markers_df$celltype)
 
 for (ct in celltypes) {
@@ -2041,7 +2109,7 @@ for (ct in celltypes) {
 
 
 # Create final markers dataframe, handling empty marker lists
-markers_df <- all_markers_df %>% dplyr::select(gene, celltype, avg_exp, pval) %>% arrange(celltype, pval)
+markers_df <- all_markers_df %>% dplyr::select(gene, log2fc,celltype, avg_exp, pval) %>% arrange(celltype, pval)
 
 # Remove rows with NA genes
 markers_df <- markers_df %>% filter(!is.na(gene))
@@ -2090,7 +2158,6 @@ print(dim(markers_df))
 new_markers_not_in_cellassign <- markers_df[!markers_df$gene %in% cellassign_markers,]
 print(dim(new_markers_not_in_cellassign))
 
-new_markers_not_in_cellassign
 #save to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/novel_markers.csv
 file_to_save = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/novel_markers.csv"
 write.csv(new_markers_not_in_cellassign, file_to_save)
@@ -2102,11 +2169,11 @@ new_markers_not_in_cellassign <- read.csv("/Users/k23030440/Library/CloudStorage
 #new_markers_not_in_cellassign <- new_markers_not_in_cellassign %>% filter(!grepl("Gm", gene))
 #all_markers_df <- all_markers_df %>% filter(!grepl("ENSMUSG", gene))
 
-#avg_exp above 5
-new_markers_not_in_cellassign <- new_markers_not_in_cellassign %>% filter(avg_exp > 3)
+#avg_exp above 5 sort by avg_exp
+new_markers_not_in_cellassign <- new_markers_not_in_cellassign %>% arrange(pval) 
 
 for (ct in celltypes) {
-  print(new_markers_not_in_cellassign %>% filter(celltype == ct) %>% head(6))
+  print(new_markers_not_in_cellassign %>% filter(celltype == ct)%>% filter(avg_exp > 3) %>% arrange(desc(log2fc)) %>% head(7) )
 }
 
 

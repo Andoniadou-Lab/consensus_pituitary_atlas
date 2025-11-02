@@ -281,13 +281,15 @@ results_sc = results_sc[results_sc$Term %in% c("Extracellular Matrix Organizatio
                                           "Cell-Cell Communication",
                                           
                                           "Focal Adhesion WP85",
-                                          "Wnt Signaling Pathway WP539",
-                                          "Prostaglandin Synthesis And Regulation WP374",
+                                          "Focal Adhesion PI3K Akt mTOR Signaling Pathway WP2841",
+                                          "Oxidative Stress And Redox Pathway WP4466",
                                           
                                           "Positive Regulation Of Cell Population Proliferation",
                                           "Extracellular Matrix Organization",
                                           "Regulation Of Cell Migration",
                                           
+                                          "ESC Pluripotency Pathways WP339",
+                                          "Wnt Signaling Pathway WP539",
                                           "Ephrin Signaling",
                                           "Signaling by Hippo",
                                           "Hippo Signaling",
@@ -316,7 +318,7 @@ vis_results <- results_sc %>%
 
 # Reorder factor of Terms for plotting by sorting through pvals
 vis_results <- vis_results %>%
-  dplyr::mutate(Term = forcats::fct_reorder(Term, Adjusted.P.value, .desc = FALSE))
+  dplyr::mutate(Term = forcats::fct_reorder(Term, Adjusted.P.value, .desc = TRUE))
 
 
 # Create plot with term truncation directly in the plot
@@ -373,10 +375,6 @@ ggsave(plot_png, p, width = 5, height = 6, units = "in", dpi = 300)
 
 
 
-
-
-
-
 #load ageing genes "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/aging/",version,".csv"
 ageing_res = read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/aging/v_0.01/aging_genes.csv")
 #keep only vals where adj.P.Val < 0.05
@@ -392,7 +390,11 @@ library(dplyr)
 library(stringr)
 library(cowplot)
 library(gridExtra)
+#load ageing background 
 
+background = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/enrichment/aging_enrichment/sc_aging_background_genes.csv"
+background = read.csv(background)
+background = background$x
 # Base output folder for aging enrichment
 aging_folder <- file.path(base_folder, "aging_enrichment")
 dir.create(aging_folder, showWarnings = FALSE, recursive = TRUE)
@@ -435,7 +437,7 @@ for(cell in cell_types) {
     }
     
     # Perform enrichment analysis
-    enrichment_results <- enrichr(genes, dbs)
+    enrichment_results <- enrichr(genes, dbs)#, background = background, include_overlap=TRUE)
     
     # Process results from both databases (reusing the process_results function)
     reactome_results <- process_results(enrichment_results, "Reactome_Pathways_2024")
@@ -473,7 +475,7 @@ for(cell in cell_types) {
       
       # Reorder factor of Terms for plotting by sorting through pvals
       vis_results <- vis_results %>%
-        dplyr::mutate(Term = forcats::fct_reorder(Term, Adjusted.P.value, .desc = FALSE))
+        dplyr::mutate(Term = forcats::fct_reorder(Term, Adjusted.P.value, .desc = TRUE))
       
       
       # Create plot with term truncation directly in the plot
@@ -507,8 +509,8 @@ for(cell in cell_types) {
           text = element_text(family = "sans", size = 12, color = "black"),
           plot.title = element_text(size = 14, face = "bold"),
           plot.subtitle = element_text(size = 10),
-          axis.text.y = element_text(size = 10, color = "black"),
-          axis.text.x = element_text(size = 10, color = "black"),
+          axis.text.y = element_text(size = 9, color = "black"),
+          axis.text.x = element_text(size = 9, color = "black"),
           axis.title.x = element_text(size = 12, face = "italic"),
           legend.position = "bottom",
           legend.title = element_blank(),
@@ -522,8 +524,8 @@ for(cell in cell_types) {
       plot_svg <- file.path(output_folder, "pathway_enrichment.svg")
       plot_png <- file.path(output_folder, "pathway_enrichment.png")
       
-      ggsave(plot_svg, p, width = 5, height = 4, units = "in", dpi = 300)
-      ggsave(plot_png, p, width = 5, height = 4, units = "in", dpi = 300)
+      ggsave(plot_svg, p, width = 5, height = 4.5, units = "in", dpi = 300)
+      ggsave(plot_png, p, width = 5, height = 4.5, units = "in", dpi = 300)
       
       cat(sprintf("Plots saved to:\n%s\n%s\n", plot_svg, plot_png))
       
