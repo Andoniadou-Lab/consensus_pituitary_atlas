@@ -1,0 +1,186 @@
+##################
+##################
+#Looking at genes changing with time - age-dependent expression
+#####
+#####
+
+
+library(tidyverse)
+library(reticulate)
+h5ad_file <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/pdatas0828.h5ad"
+
+# Read the .h5ad file using reticulate
+anndata <- import("anndata")
+py_index <- import("pandas")$Index
+adata <- anndata$read_h5ad(h5ad_file)
+
+meta_data <- as.data.frame(adata$obs)
+
+
+
+#########
+###
+##
+
+###
+meta_data <- as.data.frame(adata$obs)
+
+#keep only where age_numeric is >0
+meta_data <- meta_data %>% filter(Age_numeric > 0)
+
+#only where Modality is sc
+#meta_data <- meta_data %>% filter(Modality == "sc")
+
+#keep only unique SRA_IDs
+meta_data <- meta_data %>% distinct(SRA_ID, .keep_all = TRUE)
+# Mann-Whitney U Test
+wilcox_result <- wilcox.test(Age_numeric ~ Comp_sex, data = meta_data)
+
+# Print results
+print(wilcox_result)
+
+
+
+# ---- Ensure Comp_sex is categorical ----
+meta_data <- meta_data %>%
+  mutate(
+    Comp_sex = factor(
+      Comp_sex,
+      levels = c(0, 1),
+      labels = c("Female", "Male")
+    )
+  )
+
+# ---- Log10 age (avoid log(0)) ----
+meta_data$log10_Age <- log10(meta_data$Age_numeric + 1)
+
+# ---- Wilcoxon test ----
+wilcox_result_log <- wilcox.test(log10_Age ~ Comp_sex, data = meta_data)
+print(wilcox_result_log)
+
+# ---- Extract p-value for plotting ----
+p_val <- wilcox_result_log$p.value
+p_label <- paste0("Wilcoxon p = ", signif(p_val, 3))
+
+# ---- ggplot boxplot ----
+p_log_age <- ggplot(meta_data,
+                    aes(x = Comp_sex,
+                        y = log10_Age,
+                        fill = Comp_sex)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7, width = 0.6) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 1) +
+  scale_fill_manual(
+    values = c("Female" = "#E69F00", "Male" = "#56B4E9")
+  ) +
+  labs(
+    title = "Log10 Age Distribution by Sex",
+    x = "Sex",
+    y = "Log10(Age + 1)"
+  ) +
+  annotate(
+    "text",
+    x = 1.5,
+    y = max(meta_data$log10_Age, na.rm = TRUE) * 0.95,
+    label = p_label,
+    size = 4
+  ) +
+  theme_minimal(base_size = 9) +
+  theme(
+    legend.position = "none"
+  )
+
+print(p_log_age)
+
+# ---- Save plot ----
+ggsave(
+  filename = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/figures/revision_figures/Log10_age_distribution_by_sex_ggplot.png",
+  plot = p_log_age,
+  width = 4,
+  height = 3,
+  dpi = 300
+)
+
+
+
+
+
+
+# 1. Ensure Age is integer
+meta_data$Age_numeric <- as.integer(meta_data$Age_numeric)
+
+meta_data$Age_bins <- cut(meta_data$Age_numeric, 
+                          breaks = c(0, 100, 200,2000), 
+                          labels = c("0-100", "101-200", "201+"),
+                          right = FALSE)
+
+# 3. Create a contingency table (Removing empty levels)
+age_sex_table <- table(meta_data$Age_bins, meta_data$Comp_sex)
+# Drop bins that have zero observations across both sexes
+age_sex_table <- age_sex_table[rowSums(age_sex_table) > 0, ]
+
+# 4. Perform Chi-Square Test
+chisq_result <- chisq.test(age_sex_table)
+
+# 5. If you still get a warning, use Fisher's Exact Test
+# This is more accurate for small counts or unbalanced tables
+fisher_result <- fisher.test(age_sex_table, simulate.p.value = TRUE)
+
+# Print results
+print(age_sex_table)
+print(chisq_result)
+print(fisher_result)
+
+
+
+
+# ---- Compute normalised abundance per sex ----
+age_sex_norm <- meta_data %>%
+  filter(!is.na(Age_bins), !is.na(Comp_sex)) %>%
+  count(Age_bins, Comp_sex) %>%
+  group_by(Comp_sex) %>%            # NORMALISE PER SEX
+  mutate(
+    proportion = n / sum(n)
+  ) %>%
+  ungroup()
+
+print(age_sex_norm)
+
+# ---- Paired barplot (Female vs Male per age bin) ----
+library(scales)
+
+p_norm <- ggplot(age_sex_norm,
+                 aes(x = Age_bins,
+                     y = proportion,
+                     fill = Comp_sex)) +
+  geom_col(
+    position = position_dodge(width = 0.7),
+    width = 0.6
+  ) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_fill_manual(
+    values = c("Female" = "#E69F00", "Male" = "#56B4E9")
+  ) +
+  labs(
+    title = "Age Distribution Normalised Within Sex",
+    x = "Age bins",
+    y = "Proportion within sex",
+    fill = "Sex"
+  ) +
+  theme_minimal(base_size = 9) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(p_norm)
+
+# ---- Save plot ----
+ggsave(
+  filename = "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim 1/figures/revision_figures/Sex_normalised_within_sex_paired_age_bins.png",
+  plot = p_norm,
+  width = 4,
+  height = 3,
+  dpi = 400
+)
+
+

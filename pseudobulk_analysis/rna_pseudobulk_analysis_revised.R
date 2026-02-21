@@ -2,7 +2,10 @@ library(DESeq2)
 library(Seurat)
 library(tidyverse)
 library(reticulate)
-version="v_0.01"
+library(variancePartition)
+
+
+version="v_0.02"
 # Specify the path to the .h5ad file
 h5ad_file <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/pdatas0828.h5ad"
 
@@ -115,7 +118,6 @@ meta_data %>%
   #filter where Age_numeric >0
   dplyr::count(exptype, name = "num_SRA_IDs")
 
-
 expression_table <- sweep(expression_table, 2, meta_data$psbulk_n_cells, "/")
 
 expression_table <- expression_table * median(meta_data$psbulk_n_cells)
@@ -180,18 +182,83 @@ meta_data$assignments_exptype <- paste(meta_data$assignments, meta_data$exptype,
 
 # Create the design matrix
 design <- model.matrix(~ 0 + assignments, data = meta_data) #+ Sex + assignments:Age_numeric  + assignments:Sex, data = meta_data)
-design_sc <- model.matrix(~ 0 + assignments, data = meta_data_sc)
-design_sn <- model.matrix(~ 0 + assignments, data = meta_data_sn)
-design_multi <- model.matrix(~ 0 + assignments, data = meta_data_multi)
-design_parse <- model.matrix(~ 0 + assignments, data = meta_data_parse)
-
 
 fit <- voom(dge, design, plot=TRUE)
+
+
+meta_data$assay_version <- meta_data$`10X version`
+
+form <- ~ (1 | Modality) + (1 | Sex) + (1 | Author)
+vp <- fitExtractVarPartModel(fit, form, meta_data)
+
+plotVarPart(sortCols(vp))
+
+
+
+
+#Boxplot with ggplot
+vp_long <- as.data.frame(vp)
+
+library(tidyverse)
+
+# Pivot to long format
+vp_plot <- vp_long %>%
+  rownames_to_column("feature") %>%  # keep genomic coordinate if needed
+  pivot_longer(
+    cols = -feature,
+    names_to = "Coefficient",
+    values_to = "Value"
+  )
+
+vp_plot <- vp_plot %>%
+  mutate(
+    Coefficient = factor(
+      Coefficient,
+      levels = c("Modality", "Author", "Sex", "Residuals")
+    )
+  )
+
+# Nature-style boxplot
+ggplot(vp_plot, aes(x = Coefficient, y = Value)) +
+  geom_boxplot(
+    width = 0.6,
+    outlier.shape = NA,     # NO outlier dots
+    fill = "white",
+    color = "black",
+    linewidth = 0.4
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11, color = "black"),
+    axis.line = element_line(linewidth = 0.5),
+    axis.ticks = element_line(linewidth = 0.5),
+    panel.border = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  ) + theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      vjust = 1
+    )) +
+  labs(
+    x = NULL,
+    y = "Variance explained"
+  )
+#save to /Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/figures/revision_figures
+ggsave(paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/figures/revision_figures/rna_variance_partition_boxplot_",version,".png"), width = 3.5, height = 2.5)
+#svg
+ggsave(paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/figures/revision_figures/rna_variance_partition_boxplot_",version,".svg"), width = 3.5, height = 2.5)
+
+
+
+
 
 
 #double running this based on
 #https://support.bioconductor.org/p/114663/
 #first changing the weights to the separate ones
+
 
 corfit <- duplicateCorrelation(fit, design, block=meta_data$exptype)
 corfit$consensus.correlation
@@ -202,6 +269,29 @@ corfit$consensus.correlation
 fit <- lmFit(fit, design, block=meta_data$exptype, correlation=corfit$consensus.correlation)
 
 
+
+
+
+#____________
+# Specify parallel processing parameters
+# this is used implicitly by dream() to run in parallel
+param <- SnowParam(4, "SOCK", progressbar = TRUE)
+
+# The variable to be tested must be a fixed effect
+form <- ~0 + assignments + (1 | Author) + (1 | Modality)
+
+# estimate weights using linear mixed model of dream
+vobjDream <- voomWithDreamWeights(dge, form, meta_data, BPPARAM = param)
+
+# Fit the dream model on each gene
+# For the hypothesis testing, by default,
+# dream() uses the KR method for <= 20 samples,
+# otherwise it uses the Satterthwaite approximation
+
+fit <- dream(vobjDream, form, meta_data)
+fit <- eBayes(fit)
+
+
 ###
 # Make column names valid
 colnames(design) <- make.names(colnames(design), unique = TRUE)
@@ -209,37 +299,181 @@ colnames(design) <- make.names(colnames(design), unique = TRUE)
 print(head(coef(fit)))
 
 #save to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/
-write.csv(as.data.frame(coef(fit)), "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/coef.csv")
-coefs_table <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/coef.csv")
+write.csv(as.data.frame(coef(fit)), "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/coef_2026_01_20.csv")
+coefs_table <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/coef_2026_01_20.csv")
 #save to epitome
 
-write.csv(as.data.frame(coef(fit)), "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/heatmap/v_0.01/coef.csv")
+write.csv(as.data.frame(coef(fit)), "/Users/k23030440/epitome_code/epitome/data/heatmap/v_0.02/coef.csv")
 
 #turn coef(fit) into a dataframe
 coef_df = as.data.frame(coef(fit))
 
 coef_df$gene = rownames(coef_df)
 
-# Create contrast
-contrast <- makeContrasts(
-  #assignmentsCorticotrophs - assignmentsMelanotrophs, 
-  assignmentsThyrotrophs-assignmentsCorticotrophs,
-  levels = design
+# Create contrast - first lets try for Stem cell comparisons
+
+L <- makeContrastsDream(form, meta_data,
+                        contrasts = c( 
+                          
+                          #Corticotrophs
+                          assignmentsCorticotrophs__assignmentsGonadotrophs = "assignmentsCorticotrophs - assignmentsGonadotrophs",
+                          assignmentsCorticotrophs__assignmentsMelanotrophs = "assignmentsCorticotrophs - assignmentsMelanotrophs",
+                          assignmentsCorticotrophs__assignmentsThyrotrophs = "assignmentsCorticotrophs - assignmentsThyrotrophs",
+                          assignmentsCorticotrophs__assignmentsSomatotrophs = "assignmentsCorticotrophs - assignmentsSomatotrophs",
+                          assignmentsCorticotrophs__assignmentsLactotrophs = "assignmentsCorticotrophs - assignmentsLactotrophs",
+                          assignmentsCorticotrophs__assignmentsPituicytes = "assignmentsCorticotrophs - assignmentsPituicytes",
+                          assignmentsCorticotrophs__assignmentsImmune_cells = "assignmentsCorticotrophs - assignmentsImmune_cells",
+                          assignmentsCorticotrophs__assignmentsMesenchymal_cells = "assignmentsCorticotrophs - assignmentsMesenchymal_cells",
+                          assignmentsCorticotrophs__assignmentsEndothelial_cells = "assignmentsCorticotrophs - assignmentsEndothelial_cells",
+                          assignmentsCorticotrophs__assignmentsStem_cells = "assignmentsCorticotrophs - assignmentsStem_cells",
+                          
+                          #Gonadotrophs
+                          assignmentsGonadotrophs__assignmentsCorticotrophs = "assignmentsGonadotrophs - assignmentsCorticotrophs",
+                          assignmentsGonadotrophs__assignmentsMelanotrophs = "assignmentsGonadotrophs - assignmentsMelanotrophs",
+                          assignmentsGonadotrophs__assignmentsThyrotrophs = "assignmentsGonadotrophs - assignmentsThyrotrophs",
+                          assignmentsGonadotrophs__assignmentsSomatotrophs = "assignmentsGonadotrophs - assignmentsSomatotrophs",
+                          assignmentsGonadotrophs__assignmentsLactotrophs = "assignmentsGonadotrophs - assignmentsLactotrophs",
+                          assignmentsGonadotrophs__assignmentsPituicytes = "assignmentsGonadotrophs - assignmentsPituicytes",
+                          assignmentsGonadotrophs__assignmentsImmune_cells = "assignmentsGonadotrophs - assignmentsImmune_cells",
+                          assignmentsGonadotrophs__assignmentsMesenchymal_cells = "assignmentsGonadotrophs - assignmentsMesenchymal_cells",
+                          assignmentsGonadotrophs__assignmentsEndothelial_cells = "assignmentsGonadotrophs - assignmentsEndothelial_cells",
+                          assignmentsGonadotrophs__assignmentsStem_cells = "assignmentsGonadotrophs - assignmentsStem_cells",
+                          
+                          #Melanotrophs
+                          assignmentsMelanotrophs__assignmentsGonadotrophs = "assignmentsMelanotrophs - assignmentsGonadotrophs",
+                          assignmentsMelanotrophs__assignmentsCorticotrophs = "assignmentsMelanotrophs - assignmentsCorticotrophs",
+                          assignmentsMelanotrophs__assignmentsThyrotrophs = "assignmentsMelanotrophs - assignmentsThyrotrophs",
+                          assignmentsMelanotrophs__assignmentsSomatotrophs = "assignmentsMelanotrophs - assignmentsSomatotrophs",
+                          assignmentsMelanotrophs__assignmentsLactotrophs = "assignmentsMelanotrophs - assignmentsLactotrophs",
+                          assignmentsMelanotrophs__assignmentsPituicytes = "assignmentsMelanotrophs - assignmentsPituicytes",
+                          assignmentsMelanotrophs__assignmentsImmune_cells = "assignmentsMelanotrophs - assignmentsImmune_cells",
+                          assignmentsMelanotrophs__assignmentsMesenchymal_cells = "assignmentsMelanotrophs - assignmentsMesenchymal_cells",
+                          assignmentsMelanotrophs__assignmentsEndothelial_cells = "assignmentsMelanotrophs - assignmentsEndothelial_cells",
+                          assignmentsMelanotrophs__assignmentsStem_cells = "assignmentsMelanotrophs - assignmentsStem_cells",
+                          
+                          
+                          #Thyrotrophs
+                          assignmentsThyrotrophs__assignmentsGonadotrophs = "assignmentsThyrotrophs - assignmentsGonadotrophs",
+                          assignmentsThyrotrophs__assignmentsCorticotrophs = "assignmentsThyrotrophs - assignmentsCorticotrophs",
+                          assignmentsThyrotrophs__assignmentsMelanotrophs = "assignmentsThyrotrophs - assignmentsMelanotrophs",
+                          assignmentsThyrotrophs__assignmentsSomatotrophs = "assignmentsThyrotrophs - assignmentsSomatotrophs",
+                          assignmentsThyrotrophs__assignmentsLactotrophs = "assignmentsThyrotrophs - assignmentsLactotrophs",
+                          assignmentsThyrotrophs__assignmentsPituicytes = "assignmentsThyrotrophs - assignmentsPituicytes",
+                          assignmentsThyrotrophs__assignmentsImmune_cells = "assignmentsThyrotrophs - assignmentsImmune_cells",
+                          assignmentsThyrotrophs__assignmentsMesenchymal_cells = "assignmentsThyrotrophs - assignmentsMesenchymal_cells",
+                          assignmentsThyrotrophs__assignmentsEndothelial_cells = "assignmentsThyrotrophs - assignmentsEndothelial_cells",
+                          assignmentsThyrotrophs__assignmentsStem_cells = "assignmentsThyrotrophs - assignmentsStem_cells",
+                          
+                          
+                          
+                          #Somatotrophs
+                          assignmentsSomatotrophs__assignmentsGonadotrophs = "assignmentsSomatotrophs - assignmentsGonadotrophs",
+                          assignmentsSomatotrophs__assignmentsCorticotrophs = "assignmentsSomatotrophs - assignmentsCorticotrophs",
+                          assignmentsSomatotrophs__assignmentsMelanotrophs = "assignmentsSomatotrophs - assignmentsMelanotrophs",
+                          assignmentsSomatotrophs__assignmentsThyrotrophs = "assignmentsSomatotrophs - assignmentsThyrotrophs",
+                          assignmentsSomatotrophs__assignmentsLactotrophs = "assignmentsSomatotrophs - assignmentsLactotrophs",
+                          assignmentsSomatotrophs__assignmentsPituicytes = "assignmentsSomatotrophs - assignmentsPituicytes",
+                          assignmentsSomatotrophs__assignmentsImmune_cells = "assignmentsSomatotrophs - assignmentsImmune_cells",
+                          assignmentsSomatotrophs__assignmentsMesenchymal_cells = "assignmentsSomatotrophs - assignmentsMesenchymal_cells",
+                          assignmentsSomatotrophs__assignmentsEndothelial_cells = "assignmentsSomatotrophs - assignmentsEndothelial_cells",
+                          assignmentsSomatotrophs__assignmentsStem_cells = "assignmentsSomatotrophs - assignmentsStem_cells",
+                          
+                          
+                          #Lactotrophs
+                          assignmentsLactotrophs__assignmentsGonadotrophs = "assignmentsLactotrophs - assignmentsGonadotrophs",
+                          assignmentsLactotrophs__assignmentsCorticotrophs = "assignmentsLactotrophs - assignmentsCorticotrophs",
+                          assignmentsLactotrophs__assignmentsMelanotrophs = "assignmentsLactotrophs - assignmentsMelanotrophs",
+                          assignmentsLactotrophs__assignmentsThyrotrophs = "assignmentsLactotrophs - assignmentsThyrotrophs",
+                          assignmentsLactotrophs__assignmentsSomatotrophs = "assignmentsLactotrophs - assignmentsSomatotrophs",
+                          assignmentsLactotrophs__assignmentsPituicytes = "assignmentsLactotrophs - assignmentsPituicytes",
+                          assignmentsLactotrophs__assignmentsImmune_cells = "assignmentsLactotrophs - assignmentsImmune_cells",
+                          assignmentsLactotrophs__assignmentsMesenchymal_cells = "assignmentsLactotrophs - assignmentsMesenchymal_cells",
+                          assignmentsLactotrophs__assignmentsEndothelial_cells = "assignmentsLactotrophs - assignmentsEndothelial_cells",
+                          assignmentsLactotrophs__assignmentsStem_cells = "assignmentsLactotrophs - assignmentsStem_cells",
+                          
+                          
+                          #Pituicytes
+                          assignmentsPituicytes__assignmentsGonadotrophs = "assignmentsPituicytes - assignmentsGonadotrophs",
+                          assignmentsPituicytes__assignmentsCorticotrophs = "assignmentsPituicytes - assignmentsCorticotrophs",
+                          assignmentsPituicytes__assignmentsMelanotrophs = "assignmentsPituicytes - assignmentsMelanotrophs",
+                          assignmentsPituicytes__assignmentsThyrotrophs = "assignmentsPituicytes - assignmentsThyrotrophs",
+                          assignmentsPituicytes__assignmentsSomatotrophs = "assignmentsPituicytes - assignmentsSomatotrophs",
+                          assignmentsPituicytes__assignmentsLactotrophs = "assignmentsPituicytes - assignmentsLactotrophs",
+                          assignmentsPituicytes__assignmentsImmune_cells = "assignmentsPituicytes - assignmentsImmune_cells",
+                          assignmentsPituicytes__assignmentsMesenchymal_cells = "assignmentsPituicytes - assignmentsMesenchymal_cells",
+                          assignmentsPituicytes__assignmentsEndothelial_cells = "assignmentsPituicytes - assignmentsEndothelial_cells",
+                          assignmentsPituicytes__assignmentsStem_cells = "assignmentsPituicytes - assignmentsStem_cells",
+                          
+                          
+                          #Immune_cells
+                          assignmentsImmune_cells__assignmentsGonadotrophs = "assignmentsImmune_cells - assignmentsGonadotrophs",
+                          assignmentsImmune_cells__assignmentsCorticotrophs = "assignmentsImmune_cells - assignmentsCorticotrophs",
+                          assignmentsImmune_cells__assignmentsMelanotrophs = "assignmentsImmune_cells - assignmentsMelanotrophs",
+                          assignmentsImmune_cells__assignmentsThyrotrophs = "assignmentsImmune_cells - assignmentsThyrotrophs",
+                          assignmentsImmune_cells__assignmentsSomatotrophs = "assignmentsImmune_cells - assignmentsSomatotrophs",
+                          assignmentsImmune_cells__assignmentsLactotrophs = "assignmentsImmune_cells - assignmentsLactotrophs",
+                          assignmentsImmune_cells__assignmentsPituicytes = "assignmentsImmune_cells - assignmentsPituicytes",
+                          assignmentsImmune_cells__assignmentsMesenchymal_cells = "assignmentsImmune_cells - assignmentsMesenchymal_cells",
+                          assignmentsImmune_cells__assignmentsEndothelial_cells = "assignmentsImmune_cells - assignmentsEndothelial_cells",
+                          assignmentsImmune_cells__assignmentsStem_cells = "assignmentsImmune_cells - assignmentsStem_cells",
+                          
+                          
+                          #Mesenchymal_cells
+                          assignmentsMesenchymal_cells__assignmentsGonadotrophs = "assignmentsMesenchymal_cells - assignmentsGonadotrophs",
+                          assignmentsMesenchymal_cells__assignmentsCorticotrophs = "assignmentsMesenchymal_cells - assignmentsCorticotrophs",
+                          assignmentsMesenchymal_cells__assignmentsMelanotrophs = "assignmentsMesenchymal_cells - assignmentsMelanotrophs",
+                          assignmentsMesenchymal_cells__assignmentsThyrotrophs = "assignmentsMesenchymal_cells - assignmentsThyrotrophs",
+                          assignmentsMesenchymal_cells__assignmentsSomatotrophs = "assignmentsMesenchymal_cells - assignmentsSomatotrophs",
+                          assignmentsMesenchymal_cells__assignmentsLactotrophs = "assignmentsMesenchymal_cells - assignmentsLactotrophs",
+                          assignmentsMesenchymal_cells__assignmentsPituicytes = "assignmentsMesenchymal_cells - assignmentsPituicytes",
+                          assignmentsMesenchymal_cells__assignmentsImmune_cells = "assignmentsMesenchymal_cells - assignmentsImmune_cells",
+                          assignmentsMesenchymal_cells__assignmentsEndothelial_cells = "assignmentsMesenchymal_cells - assignmentsEndothelial_cells",
+                          assignmentsMesenchymal_cells__assignmentsStem_cells = "assignmentsMesenchymal_cells - assignmentsStem_cells",
+                          
+                          
+                          #Endothelial_cells
+                          assignmentsEndothelial_cells__assignmentsGonadotrophs = "assignmentsEndothelial_cells - assignmentsGonadotrophs",
+                          assignmentsEndothelial_cells__assignmentsCorticotrophs = "assignmentsEndothelial_cells - assignmentsCorticotrophs",
+                          assignmentsEndothelial_cells__assignmentsMelanotrophs = "assignmentsEndothelial_cells - assignmentsMelanotrophs",
+                          assignmentsEndothelial_cells__assignmentsThyrotrophs = "assignmentsEndothelial_cells - assignmentsThyrotrophs",
+                          assignmentsEndothelial_cells__assignmentsSomatotrophs = "assignmentsEndothelial_cells - assignmentsSomatotrophs",
+                          assignmentsEndothelial_cells__assignmentsLactotrophs = "assignmentsEndothelial_cells - assignmentsLactotrophs",
+                          assignmentsEndothelial_cells__assignmentsPituicytes = "assignmentsEndothelial_cells - assignmentsPituicytes",
+                          assignmentsEndothelial_cells__assignmentsImmune_cells = "assignmentsEndothelial_cells - assignmentsImmune_cells",
+                          assignmentsEndothelial_cells__assignmentsMesenchymal_cells = "assignmentsEndothelial_cells - assignmentsMesenchymal_cells",
+                          assignmentsEndothelial_cells__assignmentsStem_cells = "assignmentsEndothelial_cells - assignmentsStem_cells",
+                          
+                          
+                          #Stem cells
+                          assignmentsStem_cells__assignmentsGonadotrophs = "assignmentsStem_cells - assignmentsGonadotrophs",
+                          assignmentsStem_cells__assignmentsCorticotrophs = "assignmentsStem_cells - assignmentsCorticotrophs",
+                          assignmentsStem_cells__assignmentsMelanotrophs = "assignmentsStem_cells - assignmentsMelanotrophs",
+                          assignmentsStem_cells__assignmentsThyrotrophs = "assignmentsStem_cells - assignmentsThyrotrophs",
+                          assignmentsStem_cells__assignmentsSomatotrophs = "assignmentsStem_cells - assignmentsSomatotrophs",
+                          assignmentsStem_cells__assignmentsLactotrophs = "assignmentsStem_cells - assignmentsLactotrophs",
+                          assignmentsStem_cells__assignmentsPituicytes = "assignmentsStem_cells - assignmentsPituicytes",
+                          assignmentsStem_cells__assignmentsImmune_cells = "assignmentsStem_cells - assignmentsImmune_cells",
+                          assignmentsStem_cells__assignmentsMesenchymal_cells = "assignmentsStem_cells - assignmentsMesenchymal_cells",
+                          assignmentsStem_cells__assignmentsEndothelial_cells = "assignmentsStem_cells - assignmentsEndothelial_cells"
+ 
+                        )
 )
 
 
-# Compute differential expression
-diff_expression <- contrasts.fit(fit, contrast)
-diff_expression <- eBayes(diff_expression, trend = TRUE)
+# fit dream model with contrasts
+fit <- dream(vobjDream, form, meta_data, L)
+fit <- eBayes(fit)
 
-# Get top differentially expressed genes
-top_genes <- topTable(diff_expression, number = Inf, sort.by = "P",adjust.method="BH", lfc=0.5)
+top_genes <- topTable(fit, coef="assignmentsGonadotrophs__assignmentsThyrotrophs", number = Inf, sort.by = "P",adjust.method="BH", lfc=0.25)
 top_genes$genes <- rownames(top_genes)
 print(head(top_genes,20))
-#add col abs_logFC
-top_genes <- top_genes %>% mutate(abs_logFC = abs(logFC))
+
+
+top_genes <- top_genes %>% dplyr::mutate(abs_logFC = abs(logFC))
+
 #hist
 hist(top_genes$abs_logFC, breaks=50, main="lfc distribution", xlab="abs logFC")
+
 #how many sig
 top_genes %>% filter(adj.P.Val < 0.05)
 
@@ -257,20 +491,15 @@ compare_celltype <- function(celltype, other_celltypes, design, fit, log2fc=-Inf
     contrast_name <- paste0("assignments", celltype)
     other_contrast_name <- paste0("assignments", other)
     
-    if (!(contrast_name %in% colnames(design)) || !(other_contrast_name %in% colnames(design))) {
-      next
-    }
+
     
-    contrast <- makeContrasts(contrasts = paste0(contrast_name, " - ", other_contrast_name), 
-                              levels = design)
+    contrast_name_final <- paste0(contrast_name, "__", other_contrast_name)
+
     
-    
-    fit2 <- eBayes(contrasts.fit(fit, contrast))
-    
-    sig_genes <- topTable(fit2, number = Inf, adjust.method="BH", lfc=0.5) %>%
+    sig_genes <- topTable(fit, coef=contrast_name_final, number = Inf, sort.by = "P",adjust.method="BH", lfc=0.5) %>%
       rownames_to_column("gene") %>%
       filter(adj.P.Val < 0.05 & logFC > log2fc) %>%
-      mutate(group1 = celltype,
+      dplyr::mutate(group1 = celltype,
              group2 = other)
     
     significant_genes <- bind_rows(significant_genes, sig_genes)
@@ -292,7 +521,7 @@ for (celltype in celltypes) {
 # Display the first few rows of the results
 print(head(all_comparisons))
 #save
-write.csv(all_comparisons, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/all_comparisons.csv")
+write.csv(all_comparisons, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/all_comparisons_2026_01_21.csv")
 
 #I have a table called all_comparisons with columns "gene"      "logFC"     "AveExpr"   "t"         "P.Value"   "adj.P.Val" "B"        "group1"    "group2"
 #Below I defined different groupings of comparisons. Here I am trying to find the genes that are significant in all comparisons of a grouping, and in the same direction.
@@ -328,15 +557,22 @@ grouping_7 <- list(list("Somatotrophs"), list("Lactotrophs", "Thyrotrophs"))
 grouping_8 <- list(list("Thyrotrophs"), list("Lactotrophs", "Somatotrophs"))
 
 
+
+
+
+
 #############
 #Processing groupings
 #############
 # Function to find significant genes in the same direction across all comparisons in a grouping
-find_significant_genes <- function(all_comparisons, groupings1, groupings2, adj_p_threshold = 0.01) {
+find_significant_genes <- function(all_comparisons, groupings1, groupings2, adj_p_threshold = 0.05) {
   # Create all pairwise comparisons
   comps_left <- c()
   comps_right <- c()
   n_comps <- length(groupings1) * length(groupings2)
+  print(n_comps)
+  print(groupings1)
+  print(groupings2)
   
   # Corrected nested loops
   for (i in 1:length(groupings1)) {
@@ -348,9 +584,15 @@ find_significant_genes <- function(all_comparisons, groupings1, groupings2, adj_
   
   # Function to get significant genes for a single comparison
   get_sig_genes <- function(comparison) {
+    
+
+    
+    
     subset <- all_comparisons[all_comparisons$group1 == comparison$group1 & 
                                 all_comparisons$group2 == comparison$group2, ]
     sig_genes <- subset$gene[subset$adj.P.Val < adj_p_threshold]
+    
+    print(sig_genes)
     
     data.frame(gene = sig_genes, 
                direction = ifelse(subset$logFC[subset$gene %in% sig_genes] > 0, "up", "down"),
@@ -367,6 +609,9 @@ find_significant_genes <- function(all_comparisons, groupings1, groupings2, adj_
     sig_genes_list <- rbind(sig_genes_list, new_genes)
   }
   
+  #remove duplicate rows
+  sig_genes_list <- sig_genes_list %>% distinct()
+  
   # Only keep genes that occur in all comparisons - meaning n_comps times
   sig_genes_list <- sig_genes_list %>% 
     group_by(gene) %>%
@@ -380,11 +625,11 @@ find_significant_genes <- function(all_comparisons, groupings1, groupings2, adj_
     ungroup()
   
   #add column mean_log2fc
-  sig_genes_list <- sig_genes_list %>% group_by(gene) %>% mutate(mean_log2fc = mean(log2fc))
+  sig_genes_list <- sig_genes_list %>% group_by(gene) %>% dplyr::mutate(mean_log2fc = mean(log2fc))
   #add geom_mean_adj_pval
-  sig_genes_list <- sig_genes_list %>% group_by(gene) %>% mutate(geom_mean_adj_pval = exp(mean(log(pvalue))))
+  sig_genes_list <- sig_genes_list %>% group_by(gene) %>% dplyr::mutate(geom_mean_adj_pval = exp(mean(log(pvalue))))
   #add mean AvgExpr
-  sig_genes_list <- sig_genes_list %>% group_by(gene) %>% mutate(mean_AvgExpr = mean(AveExpr))
+  sig_genes_list <- sig_genes_list %>% group_by(gene) %>% dplyr::mutate(mean_AvgExpr = mean(AveExpr))
   #keep only unique rows gene_name and grouping, but keep other rows as well
   sig_genes_list <- sig_genes_list %>% distinct(gene, direction, .keep_all = TRUE)
   
@@ -419,8 +664,8 @@ results_list <- lapply(seq_along(all_groupings), function(i) {
 # Combine all results into a single dataframe
 all_results <- do.call(rbind, results_list)
 
-#/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/epitome/data/gene_group_annotation/v_0.01/cpdb.csv
-cpdb <- read_csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/gene_group_annotation/v_0.01//cpdb.csv")
+#/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/epitome/data/gene_group_annotation/v_0.02/cpdb.csv
+cpdb <- read_csv("/Users/k23030440/epitome_code/epitome/data/gene_group_annotation/v_0.01/cpdb.csv")
 #keep where category is TF and keep gene
 tf_list <- cpdb %>% filter(category == "TF") %>% select(gene) %>% distinct()
 tf_list <- tf_list$gene
@@ -448,13 +693,13 @@ for (i in 1:8) {
 
 
 #add a column to grouping_results called TF which is 1 if in tf_list
-all_results <- all_results %>% mutate(TF = ifelse(gene %in% tf_list, 1, 0))
+all_results <- all_results %>% dplyr::mutate(TF = ifelse(gene %in% tf_list, 1, 0))
 table(all_results$direction,all_results$grouping)
 
 #save to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/
 write_csv(all_results, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/grouping_lineage_markers_0909.csv")
-write_csv(all_results, paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/markers/",version,"/grouping_lineage_markers.csv"))
-write_csv(all_results, paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/heatmap/",version,"/rna_grouping_lineage_markers.csv"))
+write_csv(all_results, paste0("/Users/k23030440/epitome_code/epitome/data/markers/",version,"/grouping_lineage_markers.csv"))
+write_csv(all_results, paste0("/Users/k23030440/epitome_code/epitome/data/heatmap/",version,"/rna_grouping_lineage_markers.csv"))
 
 #load lineage markers
 all_results <- read_csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/grouping_lineage_markers_0909.csv")
@@ -487,10 +732,11 @@ normalized_expression <- as(normalized_expression, "CsparseMatrix")
 #first 5x5 values
 normalized_expression[1:5,1:5]
 
-Matrix::writeMM(normalized_expression, paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/expression/",version,"/normalized_data.mtx"))
-write_csv(meta_data_original, paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/expression/",version,"/meta_data.csv"))
-write.table(rownames(normalized_expression), paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/expression/",version,"/genes.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
-write.table(colnames(normalized_expression), paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/expression/",version,"/datasets.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
+version = "v_0.01"
+Matrix::writeMM(normalized_expression, paste0("/Users/k23030440/epitome_code/epitome/data/expression/",version,"/normalized_data.mtx"))
+write_csv(meta_data_original, paste0("/Users/k23030440/epitome_code/epitome/data/expression/",version,"/meta_data.csv"))
+write.table(rownames(normalized_expression), paste0("/Users/k23030440/epitome_code/epitome/data/expression/",version,"/genes.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(colnames(normalized_expression), paste0("/Users/k23030440/epitome_code/epitome/data/expression/",version,"/datasets.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
 
 rownames(normalized_expression)
 
@@ -852,533 +1098,7 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 #and svg
 ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/umap_multi.svg", p1, width = 6, height = 6)
 
-##################
-##################
-##################
-#Looking at genes changing with time - age-dependent expression
-#####
-#####
 
-library(DESeq2)
-library(Seurat)
-library(tidyverse)
-#update R
-
-library(reticulate)
-# Specify the path to the .h5ad file
-h5ad_file <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/pdatas0828.h5ad"
-
-# Read the .h5ad file using reticulate
-anndata <- import("anndata")
-py_index <- import("pandas")$Index
-adata <- anndata$read_h5ad(h5ad_file)
-
-
-# Convert the data to Seurat object
-# Seurat expects the count matrix to be in column-major order (genes x cells)
-counts <- t(adata$X) # Transpose to convert to column-major order
-meta_data <- as.data.frame(adata$obs) # Convert obs to a data frame
-vars <- adata$var
-vars <-  py_to_r(adata$var_names$to_list())
-vars
-
-# Create the Seurat object
-seurat_object <- CreateSeuratObject(counts = counts, meta.data = meta_data)
-#print unique Author
-rownames(seurat_object) <- vars
-seurat_object$assignments <- seurat_object$new_cell_type
-
-#normalize
-seurat_object <- NormalizeData(seurat_object, normalization.method = "LogNormalize", scale.factor = 1000000)
-
-root = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/"
-figs_folder = paste(root,"Figures/",sep="")
-
-
-meta_data = seurat_object@meta.data
-print(length(unique(meta_data$Author)))
-print(length(unique(meta_data$SRA_ID)))
-#print sum psbulk_n_cells
-print(sum(meta_data$psbulk_n_cells))
-expression_table = seurat_object@assays$RNA$counts
-
-###################################################
-### Now with Limma-voom below
-library(limma)
-library(edgeR)
-# Ensure valid column names for assignments and exptype
-meta_data$assignments <- make.names(meta_data$assignments)
-meta_data$exptype <- make.names(meta_data$Modality)
-
-
-# Remove any remaining problematic characters
-meta_data$assignments <- gsub("[^A-Za-z0-9_]", "", meta_data$assignments)
-meta_data$exptype <- gsub("[^A-Za-z0-9_]", "", meta_data$exptype)
-
-
-#remove where assignment is Blood
-expression_table <- expression_table[,meta_data$assignments != "Erythrocytes"]
-meta_data <- meta_data[meta_data$assignments != "Erythrocytes",]
-
-
-meta_data$Age_numeric <- as.numeric(as.character(meta_data$Age_numeric))
-meta_data$Comp<- as.numeric(as.character(meta_data$Comp_sex))
-
-#shift to 0 and log10
-#remove any with values before 0 
-expression_table <- expression_table[,meta_data$Age_numeric >= 0]
-meta_data <- meta_data[meta_data$Age_numeric >= 0,]
-
-#keep only where
-#meta_data$Age_numeric <- meta_data$Age_numeric - min(meta_data$Age_numeric)
-meta_data$Age_numeric <- log10(meta_data$Age_numeric)
-
-#remove where Normal != 1
-#expression_table <- expression_table[,meta_data$Normal == 1]
-#meta_data <- meta_data[meta_data$Normal == 1,]
-
-
-# Ensure valid column names for assignments and exptype
-meta_data$assignments <- make.names(meta_data$assignments)
-meta_data$exptype <- make.names(meta_data$Modality)
-meta_data$Sex <- make.names(meta_data$Comp)
-
-
-# Remove any remaining problematic characters
-meta_data$assignments <- gsub("[^A-Za-z0-9_]", "", meta_data$assignments)
-meta_data$exptype <- gsub("[^A-Za-z0-9_]", "", meta_data$exptype)
-meta_data$Sex <- gsub("[^A-Za-z0-9_]", "", meta_data$Sex)
-
-
-#add a new column called index
-meta_data$index <- 1:nrow(meta_data)
-#make index the rownames
-rownames(meta_data) <- meta_data$index
-
-#divide values in each column by respective value in meta_data meta_data$psbulk_n_cells
-boxplot(colSums(expression_table), main = "Boxplot of colSums of expression_table", ylab = "log10(colSums)", log = "y")
-
-expression_table <- sweep(expression_table, 2, meta_data$psbulk_n_cells, "/")
-
-expression_table <- expression_table * median(meta_data$psbulk_n_cells)
-
-#make boxplot of colsums log y
-boxplot(colSums(expression_table), main = "Boxplot of colSums of expression_table", ylab = "log10(colSums)", log = "y")
-
-
-exp_table = expression_table[,meta_data$exptype == "sc"]
-meta_data = meta_data[meta_data$exptype == "sc",]
-
-dge = DGEList(counts = exp_table, group = meta_data$assignments)
-
-# Create the design matrix
-design <- model.matrix(~0 + assignments +  assignments:Age_numeric, data = meta_data)
-
-
-#remove genes expressed in less than 10% of the samples or with less than 1000 total counts
-keep_genes <- filterByExpr(dge, design, min.total.count = 500,min.prop= 0.2)
-sum(keep_genes)
-
-dge <- dge[keep_genes, ]
-gene_names <- rownames(dge)
-
-#print genes names with top counts
-rownames(dge)[order(rowSums(dge$counts), decreasing = TRUE)[1:15]]
-#also print their total count
-rowSums(dge$counts)[order(rowSums(dge$counts), decreasing = TRUE)[1:15]]
-
-
-
-#norm
-dge <- calcNormFactors(dge, method = "TMM")
-
-colnames(design)<-make.names(colnames(design))
-
-fit <- voom(dge, design, plot=TRUE)
-fit <- lmFit(fit, design)
-
-
-background_genes <- rownames(dge)
-#save to /Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/enrichment/aging_enrichment/aging_analysis_summary.csv
-write.csv(background_genes, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/enrichment/aging_enrichment/sc_aging_background_genes.csv", row.names = FALSE)
-
-#####
-#Age effect
-#####
-
-contrast <- makeContrasts(
-  #assignmentsStem_cells - assignmentsLactotrophs, 
-  #assignmentsGonadotrophs.Age_numeric,
-  assignmentsStem_cells.Age_numeric,
-  levels = design
-)
-
-# Compute differential expression
-diff_expression <- contrasts.fit(fit, contrast)
-diff_expression <- eBayes(diff_expression, robust=TRUE)
-
-# Get top differentially expressed genes
-top_genes <- topTable(diff_expression, number = Inf, adjust.method="bonf", lfc=0.5)
-top_genes$genes <- rownames(top_genes)
-print(rownames((top_genes)))
-
-#how many sig
-print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
-
-
-cpdb <- read_csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/gene_group_annotation/v_0.01//cpdb.csv")
-#keep where category is TF and keep gene
-tf_list <- cpdb %>% filter(category == "TF") %>% select(gene) %>% distinct()
-tf_list <- tf_list$gene
-
-
-print("Up TFs with time")
-#rank it by adj.P.val
-print(top_genes %>% filter(genes %in% tf_list & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
-print("Down TFs with time")
-print(top_genes %>% filter(genes %in% tf_list & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
-
-
-print("Up with time")
-#rank it by adj.P.val
-print(top_genes %>% filter( logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
-print("Down  with time")
-print(top_genes %>% filter( logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
-
-
-
-#save these tfs up and down
-tfs_up = top_genes %>% filter(genes %in% tf_list & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
-tfs_down = top_genes %>% filter(genes %in% tf_list & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
-
-tfs_up
-
-tfs_down
-
-#save to "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/
-write.csv(tfs_up, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_tfs_up.csv")
-write.csv(tfs_down, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_tfs_down.csv")
-
-cpdb <- read_csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/gene_group_annotation/v_0.01//cpdb.csv")
-#keep where category is TF and keep gene
-ligands  <- cpdb %>% filter(category == "ligand") %>% select(gene) %>% distinct()
-ligands <- ligands$gene
-receptors  <- cpdb %>% filter(category == "receptor") %>% select(gene) %>% distinct()
-receptors <- receptors$gene
-
-#ligands /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/CellChatDBmouse.csv
-ligands_up = top_genes %>% filter(genes %in% ligands & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
-ligands_down = top_genes %>% filter(genes %in% ligands & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
-ligands_up
-ligands_down
-
-
-#receptors
-receptors_up = top_genes %>% filter(genes %in% receptors & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
-receptors_down = top_genes %>% filter(genes %in% receptors & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
-receptors_up
-receptors_down
-
-write.csv(ligands_up, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_ligands_up.csv")
-write.csv(ligands_down, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_ligands_down.csv")
-write.csv(receptors_up, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_receptors_up.csv")
-write.csv(receptors_down, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_receptors_down.csv")
-
-
-library("clipr")
-up_genes <- top_genes[top_genes$logFC > 0 & top_genes$adj.P.Val < 0.05,]
-#print top 10 highest pval
-
-
-print(head(up_genes,10))
-write_clip(paste(up_genes$gene, collapse = "\n"))
-down_genes <- top_genes[top_genes$logFC < 0 & top_genes$adj.P.Val < 0.05,]
-#print top 10 highest pval
-print(head(down_genes,10))
-write_clip(paste(down_genes$gene, collapse = "\n"))
-
-
-
-
-#Extracting for all cell types
-
-
-
-coefs = c("assignmentsCorticotrophs.Age_numeric",
-          "assignmentsEndothelial_cells.Age_numeric", "assignmentsGonadotrophs.Age_numeric",     
-          "assignmentsImmune_cells.Age_numeric",      "assignmentsLactotrophs.Age_numeric",      
-          "assignmentsMelanotrophs.Age_numeric",      "assignmentsMesenchymal_cells.Age_numeric",
-          "assignmentsPituicytes.Age_numeric",        "assignmentsSomatotrophs.Age_numeric",     
-          "assignmentsStem_cells.Age_numeric",        "assignmentsThyrotrophs.Age_numeric" )
-
-
-# Create empty list to store results
-all_results <- list()
-
-# Extract cell types from coefficient names
-get_cell_type <- function(coef_name) {
-  # Remove "assignments" prefix and ".Age_numeric" suffix
-  gsub("assignments(.*)\\.Age_numeric", "\\1", coef_name)
-}
-
-# Iterate through each coefficient
-for(coef in coefs) {
-  # Create contrast matrix
-  contrast <- makeContrasts(
-    contrasts = coef,
-    levels = design
-  )
-  
-  # Compute differential expression
-  diff_expression <- contrasts.fit(fit, contrast)
-  diff_expression <- eBayes(diff_expression, robust=TRUE)
-  
-  # Get top genes
-  top_genes <- topTable(diff_expression, number = Inf,adjust.method="bonf")
-  top_genes$genes <- rownames(top_genes)
-  #print cell type
-  print(get_cell_type(coef))
-  #print number of significant genes
-  print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
-  
-  # Add cell type column
-  top_genes$cell_type <- get_cell_type(coef)
-  
-  # Store results
-  all_results[[coef]] <- top_genes
-}
-
-# Combine all results into single dataframe
-final_results <- do.call(rbind, all_results)
-
-# Reset row names
-rownames(final_results) <- NULL
-
-
-
-#save to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/aging/v_0.01
-version = "v_0.01"
-write.csv(final_results, paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/aging/v_0.01/aging_genes.csv"))
-
-
-final_results <- read.csv(paste0("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/aging/v_0.01/aging_genes.csv"), header = TRUE, stringsAsFactors = FALSE)
-
-#keep only padj < 0.05
-final_results_pan_pit <- final_results[final_results$adj.P.Val < 0.05,]
-#filter log2fc for abs 0.5
-final_results_pan_pit <- final_results_pan_pit[abs(final_results_pan_pit$logFC) >= 0.5,]
-#remove where cell_type "Mesenchymal_cells" "Pituicytes"   "Immune_cells" "Endothelial_cells"
-final_results_pan_pit <- final_results_pan_pit[!final_results_pan_pit$cell_type %in% c("Mesenchymal_cells", "Pituicytes", "Immune_cells", "Endothelial_cells"),]
-#calc avg logFC and geom avg adj pval
-final_results_pan_pit$avg_logFC <- ave(final_results_pan_pit$logFC, final_results_pan_pit$genes, FUN = mean)
-#geom avg adj pval
-final_results_pan_pit$avg_adj_pval <- ave(final_results_pan_pit$adj.P.Val, final_results_pan_pit$genes, FUN = function(x) prod(x)^(1/length(x)))
-#add another column saying number of times a given gene occurs
-final_results_pan_pit$gene_count <- ave(final_results_pan_pit$genes, final_results_pan_pit$genes, FUN = length)
-
-final_results_pan_pit <- final_results_pan_pit[!duplicated(final_results_pan_pit$genes),]
-#at least 3 gene count
-final_results_pan_pit <- final_results_pan_pit[final_results_pan_pit$gene_count >= 3,]
-final_results_pan_pit
-
-#order according to gene_count
-final_results_pan_pit <- final_results_pan_pit[order(final_results_pan_pit$gene_count, decreasing = TRUE),]
-
-#save these genes as csv
-#/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/DE/pan_pituitary_ageing.csv
-write.csv(final_results_pan_pit, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/pan_pituitary_ageing.csv")
-#clipboard gene names
-unique_pan_pit_genes = final_results_pan_pit$genes
-library(clipr)
-write_clip(paste(unique_pan_pit_genes, collapse = "\n"))
-
-#I have this df called final_results with columns logFC, genes, adj.P.Val and cell_type. Make a heatmap, where tiles are outline wiht red if significant and colored with light to dark blue based on logFC. Make columns cell_types and rows genes. Specifically look at Ifit3, Mki67 and Lef1
-
-
-# Load required packages
-library(dplyr)
-library(ggplot2)
-library(tidyr)
-
-# Highlight specific genes of interest
-genes_of_interest <- c("Wnt10a","Wnt16","Wnt6","Fzd2","Fzd9","Fzd10","Wif1","Lef1","Rspo4","Sfrp1","Sfrp2","Sfrp5","Apcdd1","Tnfrsf19","Sostdc1",
-                       "Cdk1","Cdk2","Ccna1","Ccnb1","H19","E2f8","E2f1","Mki67","Top2a","Ube2c","Aurkb",
-                       "Lcn2","Cxcl13","Ccl5","H2-Aa","H2-K1","H2-Ab1","Ifit3","Ifit3b","C1qc","C1qa","Il1b","Il6","Il18","Il17rc","Il15ra","Igha")
-                       
-#keep only where genes in final_results_pan_pit
-genes_of_interest <- genes_of_interest[genes_of_interest %in% final_results_pan_pit$genes]
-# Create the heatmap
-plot <- final_results %>%
-  # Filter to only include genes of interest
-  filter(genes %in% genes_of_interest) %>%
-  # Create a significance flag and preserve input order
-  mutate(is_significant = adj.P.Val < 0.05,
-         # Add line thickness variable
-         line_size = ifelse(genes %in% genes_of_interest, 0.6, 0.4),
-         # Convert genes to factor with levels in the exact order specified
-         genes = factor(genes, levels = genes_of_interest)) %>%
-  # Create the plot
-  ggplot(aes(x = cell_type, y = genes, fill = logFC)) +
-  geom_tile(aes(color = is_significant, size = line_size), 
-            width = 0.8, height = 0.8) +
-  # Set color scales
-  scale_fill_gradient2(low = "#ffa500", mid = "white", 
-                       high = "#63b3ed", midpoint = 0) +
-  scale_color_manual(values = c("FALSE" = "gray", "TRUE" = "red"),
-                     name = "Significant",
-                     labels = c("FALSE" = "Not Significant", "TRUE" = "Significant"),
-                     guide = guide_legend(override.aes = list(
-                       fill = "white",
-                       size = 1,
-                       linetype = 1,
-                       linewidth = 2
-                     ))) +
-  scale_size_identity() +
-  # Customize theme
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size =10),
-        axis.title = element_blank(),
-        panel.grid = element_blank()) +
-  #y axis italics
-  theme(axis.text.y = element_text(size = 10, face = "italic")) +
-  labs(fill = "logFC")
-
-plot
-
-
-#save plot to/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/DE
-ggsave(plot, filename = "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/DE/heatmap_aging_genes.png", width = 5.1, height = 5.0, dpi = 300)
-#also svg
-ggsave(plot, filename = "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/DE/heatmap_aging_genes.svg", width = 5.1, height = 5.0, dpi = 300)
-
-
-
-# Process the final_results data for plotting
-library(ggplot2)
-library(dplyr)
-
-# Create a dataframe to store the counts of age-related genes per cell type
-age_genes <- list()
-cell_types <- unique(final_results$cell_type)
-
-for (cell_type in cell_types) {
-  # Filter results for this cell type
-  cell_results <- final_results[final_results$cell_type == cell_type, ]
-  
-  # Count significant genes (adj.P.Val < 0.05)
-  # Positive logFC = increased with age, negative = decreased with age
-  increased_genes <- nrow(cell_results[cell_results$adj.P.Val < 0.05 & cell_results$logFC > 0, ])
-  decreased_genes <- nrow(cell_results[cell_results$adj.P.Val < 0.05 & cell_results$logFC < 0, ])
-  
-  age_genes[[cell_type]] <- list(
-    increased = increased_genes,
-    decreased = decreased_genes
-  )
-  
-  cat(sprintf("%s: %d increased, %d decreased genes with aging\n", 
-              cell_type, increased_genes, decreased_genes))
-}
-
-# Create dataframe for plotting
-plot_data <- data.frame(
-  cell_type = names(age_genes),
-  increased_genes = sapply(age_genes, function(x) x$increased),
-  decreased_genes = sapply(age_genes, function(x) x$decreased)
-)
-#remove Immune_cells
-#plot_data <- plot_data[!grepl("Immune_cells", plot_data$cell_type), ]
-# Reshape the data for plotting
-plot_data_long <- rbind(
-  data.frame(
-    cell_type = plot_data$cell_type,
-    count = -plot_data$decreased_genes,  # Negative for decreased to show on left
-    change = "Decreased",
-    label = plot_data$decreased_genes    # Positive label
-  ),
-  data.frame(
-    cell_type = plot_data$cell_type,
-    count = plot_data$increased_genes,
-    change = "Increased",
-    label = plot_data$increased_genes
-  )
-)
-
-# Format labels
-plot_data_long$label[plot_data_long$label == 0] <- ""
-plot_data_long$label <- ifelse(plot_data_long$change == "Increased", 
-                               paste0("   ", plot_data_long$label),
-                               plot_data_long$label)
-
-# Ensure count is numeric
-plot_data_long$count <- as.numeric(plot_data_long$count)
-
-# Calculate total differentially expressed genes per cell type and reorder
-plot_data_long <- plot_data_long %>%
-  group_by(cell_type) %>%
-  mutate(total_diff_exp = sum(abs(count))) %>% # Total absolute differentially expressed genes
-  ungroup() %>%
-  arrange(desc(total_diff_exp)) %>%            # Order by total genes
-  mutate(cell_type = factor(cell_type, levels = unique(cell_type))) # Maintain order
-
-# Add a column for fixed label positions
-plot_data_long <- plot_data_long %>%
-  mutate(label_position = ifelse(count > 0, 400, -400)) # Labels at fixed positions
-
-# Plot
-plt = ggplot(plot_data_long, aes(x = cell_type, y = count, fill = change)) +
-  geom_bar(stat = "identity", position = "stack") +
-  geom_text(aes(label = label, y = label_position), # Use fixed label positions
-            color = "black",
-            size = 5) +
-  scale_fill_manual(values = c("Decreased" = "#FFA500", "Increased" = "#63B3ED")) +
-  scale_y_continuous(
-    labels = abs,  # Show absolute values on axis
-    limits = c(-max(abs(plot_data_long$count)) * 1.2, max(abs(plot_data_long$count)) * 1.2) # Symmetric axis
-  ) +
-  coord_flip() +
-  labs(
-    title = "Age-related Genes Across Cell Types",
-    x = "Cell Type",
-    y = "Number of Age-related Genes",
-    fill = ""
-  ) +
-  theme_minimal() +
-  theme(
-    panel.grid.major.y = element_blank(),
-    panel.grid.minor = element_blank(),
-    axis.text = element_text(size = 16),
-    axis.title = element_text(size = 16),
-    legend.position = "top",
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-    legend.text = element_text(size = 16)
-  )
-
-print(plt)
-
-
-
-
-# Save the plot as PNG and SVG
-output_dir <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE"
-
-# PNG with high resolution
-ggsave(
-  filename = file.path(output_dir, "age_related_genes.png"),
-  plot = plt,
-  width = 5.5,
-  height = 6,
-  dpi = 300
-)
-
-# SVG format
-ggsave(
-  filename = file.path(output_dir, "age_related_genes.svg"),
-  plot = plt,
-  width = 5.5,
-  height = 6
-)
-
-print(plt)
 
 
 #############
@@ -1654,7 +1374,7 @@ print(rownames((top_genes)))
 #how many sig
 print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
 
-cpdb <- read_csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/gene_group_annotation/v_0.01//cpdb.csv")
+cpdb <- read_csv("/Users/k23030440/epitome_code/epitome/data/gene_group_annotation/v_0.02//cpdb.csv")
 #keep where category is TF and keep gene
 tf_list <- cpdb %>% filter(category == "TF") %>% select(gene) %>% distinct()
 tf_list <- tf_list$gene
@@ -1766,14 +1486,14 @@ library(dplyr)
 # Calculate total differentially expressed genes per cell type and reorder
 plot_data_long <- plot_data_long %>%
   group_by(cell_type) %>%
-  mutate(total_diff_exp = sum(abs(count))) %>% # Total absolute differentially expressed genes
+  dplyr::mutate(total_diff_exp = sum(abs(count))) %>% # Total absolute differentially expressed genes
   ungroup() %>%
   arrange(desc(total_diff_exp)) %>%            # Order by total genes
-  mutate(cell_type = factor(cell_type, levels = unique(cell_type))) # Maintain order
+  dplyr::mutate(cell_type = factor(cell_type, levels = unique(cell_type))) # Maintain order
 
 # Add a column for fixed label positions
 plot_data_long <- plot_data_long %>%
-  mutate(label_position = ifelse(count > 0, 400, -400)) # Labels at fixed positions
+  dplyr::mutate(label_position = ifelse(count > 0, 400, -400)) # Labels at fixed positions
 
 # Plot
 plt = ggplot(plot_data_long, aes(x = cell_type, y = count, fill = sex)) +
@@ -1875,7 +1595,7 @@ df_final <- df_final  %>%
   left_join(df_final , by = "gene")
 
 df_final 
-write.csv(df_final,"/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/sex_dimorphism/v_0.01/sexually_dimorphic_genes.csv")
+write.csv(df_final,"/Users/k23030440/epitome_code/epitome/data/sex_dimorphism/v_0.02/sexually_dimorphic_genes.csv")
 
 write.csv(df_raw,"/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes_raw.csv")
 
@@ -1930,7 +1650,7 @@ df_sex_genes <- df_sex_genes %>% filter(gene %in% df_sex_genes_filtered$gene)
 
 df_sex_genes <- df_sex_genes %>%
   group_by(gene) %>%
-  mutate(avg_log2fc = mean(logFC, na.rm = TRUE)) %>%
+  dplyr::mutate(avg_log2fc = mean(logFC, na.rm = TRUE)) %>%
   ungroup()
 
 #first 20 gene names
@@ -1948,7 +1668,7 @@ library(tidyr)
 #only keep those that are avg abs logfc > 1
 final_results <- final_results %>%
   group_by(gene) %>%
-  mutate(avg_abs_log2fc = mean(abs(logFC), na.rm = TRUE)) %>%
+  dplyr::mutate(avg_abs_log2fc = mean(abs(logFC), na.rm = TRUE)) %>%
   ungroup()
 
 #remove genes starting with gm or ens !grepl("^Gm|^Gm[0-9]+$|^ENS" !grepl("Rik$"
@@ -1978,7 +1698,7 @@ plot <- final_results %>%
   # Filter to only include genes of interest
   dplyr::filter(gene %in% genes_of_interest) %>%
   # Create a significance flag and preserve input order
-  mutate(is_significant = adj.P.Val < 0.05,
+  dplyr::mutate(is_significant = adj.P.Val < 0.05,
          # Add line thickness variable
          line_size = ifelse(gene %in% genes_of_interest, 0.6, 0.4),
          # Convert genes to factor with levels in the exact order specified
@@ -2031,207 +1751,3 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 
 
 
-
-
-
-##################
-##################
-##################
-# Cell typing marker
-##################
-##################
-##################
-
-
-# Main loop
-all_markers <- list()
-#initialise empty df 
-all_markers_df <- data.frame()
-celltypes <- unique(meta_data$assignments)
-for (celltype in celltypes) {
-  other_celltypes <- setdiff(celltypes, celltype)
-  significant_genes <- compare_celltype(celltype, other_celltypes, design, fit, 0)
-  print(paste("Cell type:", celltype, "Significant genes found:", nrow(significant_genes)))
-  # Find genes significant in all but at most one comparison
-  min_required <- length(other_celltypes)
-  markers <- significant_genes %>% group_by(gene) %>% dplyr::filter(n() >= min_required) 
-  print(paste("Markers after filtering for consistency in", celltype, ":", nrow(markers)))
-  #only keep if log2fc is ALWAYS > 2
-  markers <- markers %>% group_by(gene) %>% dplyr::filter(all(logFC > 2)) %>% dplyr::summarise(log2fc = mean(logFC), pval = exp(mean(log(adj.P.Val))), avg_expr = mean(AveExpr))
-  #order by pval
-  print(paste("Markers after filtering for log2fc > 2 in", celltype, ":", nrow(markers)))
-  markers <- markers %>% dplyr::arrange(pval)
-  #add col about cell types
-  markers$celltype <- celltype
-  
-  
-  #add markers to all_markers_df
-  all_markers_df <- rbind(all_markers_df, markers)
-  
-  #remove dups
-  markers <- unique(markers%>% pull(gene))
-  all_markers[[celltype]] <- markers
-}
-
-
-all_markers_df <- all_markers_df %>% dplyr::arrange(pval)
-
-
-#save it to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/cell_typing_markers.csv
-write.csv(all_markers_df, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/cell_typing_markers.csv")
-
-write.csv(all_markers_df, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/markers/v_0.01/cell_typing_markers.csv")
-
-all_markers_df <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/cell_typing_markers.csv")
-
-coefs_table <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/coef.csv")
-
-rownames(coefs_table) <- coefs_table$X
-#remove first col
-coefs_table <- coefs_table[, -1]
-#for each col name remove assignments in coefs_table
-colnames(coefs_table) <- gsub("assignments", "", colnames(coefs_table))
-#add a new col to all_markers_df called avg_exp, get this value by finding the cell_type as a column in coefs_table and then accessing the gene (row_index) and get value
-all_markers_df$avg_exp <- NA
-for (i in 1:nrow(all_markers_df)) {
-  gene <- all_markers_df$gene[i]
-  celltype <- all_markers_df$celltype[i]
-  all_markers_df$avg_exp[i] <- coefs_table[gene, celltype]
-}
-
-#keep those with at least 5 > avg_exp
-#all_markers_df <- all_markers_df %>% filter(avg_exp > 5)
-
-celltypes <- unique(all_markers_df$celltype)
-
-for (ct in celltypes) {
-  print(all_markers_df %>% dplyr::filter(celltype == ct) %>% head(5))
-}
-
-
-# Create final markers dataframe, handling empty marker lists
-markers_df <- all_markers_df %>% dplyr::select(gene, log2fc,celltype, avg_exp, pval) %>% arrange(celltype, pval)
-
-# Remove rows with NA genes
-markers_df <- markers_df %>% filter(!is.na(gene))
-
-# Print summary
-print(table(markers_df$celltype))
-
-
-# Print the first few rows of the final markers dataframe
-print("First few rows of the markers dataframe:")
-print(head(markers_df))
-
-#print top
-# Print structure of meta_data and design matrix for debugging
-print("Structure of meta_data:")
-print(str(meta_data))
-
-print("First few rows of the design matrix:")
-print(head(design))
-
-
-markers<- markers_df %>%
-  filter(celltype == "Stem_cells") %>%
-  select(gene)
-#convert to ordinary list
-markers <- markers$gene
-markers <- as.character(markers)
-
-#print top5 for each cell type
-for (ct in celltypes) {
-  print(markers_df %>% filter(celltype == ct) %>% head(5))
-}
-
-
-
-
-#############
-###Novel markers other than those used in CellAssign
-##########
-
-#load /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/spatial panel construction/cellassign_markers_updated.xlsx
-library(readxl)
-cellassign_markers = read_excel("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/spatial panel construction/cellassign_markers_updated.xlsx")
-cellassign_markers = cellassign_markers$Gene
-print(dim(markers_df))
-new_markers_not_in_cellassign <- markers_df[!markers_df$gene %in% cellassign_markers,]
-print(dim(new_markers_not_in_cellassign))
-
-#save to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/novel_markers.csv
-file_to_save = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/novel_markers.csv"
-write.csv(new_markers_not_in_cellassign, file_to_save)
-
-new_markers_not_in_cellassign <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/novel_markers.csv")
-#also remove those with Rik in the name
-#new_markers_not_in_cellassign <- new_markers_not_in_cellassign %>% filter(!grepl("Rik", gene))
-#remove those with gm or ENSMUSG in the name
-#new_markers_not_in_cellassign <- new_markers_not_in_cellassign %>% filter(!grepl("Gm", gene))
-#all_markers_df <- all_markers_df %>% filter(!grepl("ENSMUSG", gene))
-
-#avg_exp above 5 sort by avg_exp
-new_markers_not_in_cellassign <- new_markers_not_in_cellassign %>% arrange(pval) 
-
-for (ct in celltypes) {
-  print(new_markers_not_in_cellassign %>% filter(celltype == ct)%>% filter(avg_exp > 3) %>% arrange(desc(log2fc)) %>% head(7) )
-}
-
-
-
-#keep only where gene is in new_markers_not_in_cellassign
-plot_markers_df <- all_markers_df %>% filter(gene %in% new_markers_not_in_cellassign$gene)
-#order by lowest pval first
-plot_markers_df <- plot_markers_df %>% arrange(pval)
-
-
-
-
-#remove Nr5a1os
-plot_markers_df <- plot_markers_df %>% filter(gene != "Nr5a1os")
-for (ct in celltypes) {
-  print(plot_markers_df  %>% filter(celltype == ct) %>% select(gene,celltype) %>% head(5))
-  
-}
-
-
-
-
-## Deriving markers without logfc constraint, and allowing one other cell type to not be sig
-
-
-# Main loop
-all_markers <- list()
-#initialise empty df 
-all_markers_df <- data.frame()
-celltypes <- unique(meta_data$assignments)
-for (celltype in celltypes) {
-  other_celltypes <- setdiff(celltypes, celltype)
-  significant_genes <- compare_celltype(celltype, other_celltypes, design, fit, 0)
-  print(paste("Cell type:", celltype, "Significant genes found:", nrow(significant_genes)))
-  # Find genes significant in all but at most one comparison
-  min_required <- length(other_celltypes)
-  markers <- significant_genes %>% group_by(gene) %>% dplyr::filter(n() >= min_required-3) 
-  print(paste("Markers after filtering for consistency in", celltype, ":", nrow(markers)))
-  #only keep if log2fc is ALWAYS > 2
-  markers <- markers %>% group_by(gene) %>% dplyr::filter(all(logFC > 0)) %>% dplyr::summarise(log2fc = mean(logFC), pval = exp(mean(log(adj.P.Val))), avg_expr = mean(AveExpr))
-  #order by pval
-  print(paste("Markers after filtering for log2fc > 2 in", celltype, ":", nrow(markers)))
-  markers <- markers %>% dplyr::arrange(pval)
-  #add col about cell types
-  markers$celltype <- celltype
-  
-  
-  #add markers to all_markers_df
-  all_markers_df <- rbind(all_markers_df, markers)
-  
-  #remove dups
-  markers <- unique(markers%>% pull(gene))
-  all_markers[[celltype]] <- markers
-}
-
-
-all_markers_df <- all_markers_df %>% dplyr::arrange(pval)
-
-
-write.csv(all_markers_df, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/relaxed_markers_mouse.csv")

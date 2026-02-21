@@ -1,0 +1,751 @@
+---
+title: "Generating variance partition plots"
+author: "Bence Kover"
+date: "2026-01-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Loading dependencies
+
+```{r}
+library(DESeq2)
+library(Seurat)
+library(tidyverse)
+library(reticulate)
+
+```
+
+
+
+```{r}
+
+version="v_0.02"
+# Specify the path to the .h5ad file
+h5ad_file <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/pdatas_2026_02_04.h5ad"
+
+# Read the .h5ad file using reticulate
+anndata <- reticulate::import("anndata")
+py_index <- reticulate::import("pandas")$Index
+adata <- anndata$read_h5ad(h5ad_file)
+
+# Convert the data to Seurat object
+# Seurat expects the count matrix to be in column-major order (genes x cells)
+counts <- t(adata$X) # Transpose to convert to column-major order
+meta_data <- as.data.frame(adata$obs) # Convert obs to a data frame
+vars <- adata$var
+vars <-  py_to_r(adata$var_names$to_list())
+
+# Create the Seurat object
+seurat_object <- CreateSeuratObject(counts = counts, meta.data = meta_data)
+#print unique Author
+rownames(seurat_object) <- vars
+seurat_object$assignments <- seurat_object$new_cell_type
+
+root = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/"
+figs_folder = paste(root,"Figures/",sep="")
+
+meta_data = seurat_object@meta.data
+print(length(unique(meta_data$Author)))
+print(length(unique(meta_data$SRA_ID)))
+
+#print sum psbulk_n_cells
+print(sum(meta_data$psbulk_n_cells))
+expression_table = seurat_object@assays$RNA$counts
+unique(meta_data$SRA_ID)
+```
+
+
+
+
+
+```{r}
+
+###################################################
+### Now with Limma-voom below
+library(limma)
+library(edgeR)
+# Ensure valid column names for assignments and exptype
+meta_data$assignments <- make.names(meta_data$assignments)
+meta_data$exptype <- make.names(meta_data$Modality)
+
+# Remove any remaining problematic characters
+meta_data$assignments <- gsub("[^A-Za-z0-9_]", "", meta_data$assignments)
+meta_data$exptype <- gsub("[^A-Za-z0-9_]", "", meta_data$exptype)
+
+
+#remove where assignment is Blood
+expression_table <- expression_table[,meta_data$assignments != "Erythrocytes"]
+meta_data <- meta_data[meta_data$assignments != "Erythrocytes",]
+
+
+meta_data$Age_numeric <- as.numeric(as.character(meta_data$Age_numeric))
+meta_data$Comp<- as.numeric(as.character(meta_data$Comp_sex))
+
+#shift to 0 and log10
+#remove any with values before 0 
+expression_table <- expression_table[,meta_data$Age_numeric >= 0]
+meta_data <- meta_data[meta_data$Age_numeric >= 0,]
+
+#keep only where
+#meta_data$Age_numeric <- meta_data$Age_numeric - min(meta_data$Age_numeric)
+meta_data$Age_numeric <- log10(meta_data$Age_numeric)
+
+#remove where Normal != 1
+#expression_table <- expression_table[,meta_data$Normal == 1]
+#meta_data <- meta_data[meta_data$Normal == 1,]
+
+
+# Ensure valid column names for assignments and exptype
+meta_data$assignments <- make.names(meta_data$assignments)
+meta_data$exptype <- make.names(meta_data$Modality)
+meta_data$Sex <- make.names(meta_data$Comp)
+
+
+# Remove any remaining problematic characters
+meta_data$assignments <- gsub("[^A-Za-z0-9_]", "", meta_data$assignments)
+meta_data$exptype <- gsub("[^A-Za-z0-9_]", "", meta_data$exptype)
+meta_data$Sex <- gsub("[^A-Za-z0-9_]", "", meta_data$Sex)
+
+
+#add a new column called index
+meta_data$index <- 1:nrow(meta_data)
+#make index the rownames
+rownames(meta_data) <- meta_data$index
+
+#divide values in each column by respective value in meta_data meta_data$psbulk_n_cells
+boxplot(colSums(expression_table), main = "Boxplot of colSums of expression_table", ylab = "log10(colSums)", log = "y")
+
+expression_table <- sweep(expression_table, 2, meta_data$psbulk_n_cells, "/")
+
+expression_table <- expression_table * median(meta_data$psbulk_n_cells)
+
+#make boxplot of colsums log y
+boxplot(colSums(expression_table), main = "Boxplot of colSums of expression_table", ylab = "log10(colSums)", log = "y")
+
+
+exp_table = expression_table[,meta_data$exptype == "sc"]
+meta_data = meta_data[meta_data$exptype == "sc",]
+
+dge = DGEList(counts = exp_table, group = meta_data$assignments)
+
+# Create the design matrix
+design <- model.matrix(~0 + assignments +  assignments:Age_numeric , data = meta_data)
+
+
+#remove genes expressed in less than 10% of the samples or with less than 1000 total counts
+keep_genes <- filterByExpr(dge, design, min.total.count = 500,min.prop= 0.2)
+sum(keep_genes)
+
+dge <- dge[keep_genes, ]
+gene_names <- rownames(dge)
+
+#norm
+dge <- calcNormFactors(dge, method = "TMM")
+
+colnames(design)<-make.names(colnames(design))
+
+```
+
+
+
+
+```{r}
+
+param <- SnowParam(4, "SOCK", progressbar = TRUE)
+
+# The variable to be tested must be a fixed effect
+form <- ~0 + assignments +  assignments:Age_numeric +  (1 | Author)
+
+# estimate weights using linear mixed model of dream
+vobjDream <- voomWithDreamWeights(dge, form, meta_data, BPPARAM = param)
+
+
+L <- makeContrastsDream(form, meta_data,
+                        contrasts = c( 
+                          
+                          #Stem cells
+                          Stem_cells_age = "assignmentsStem_cells.Age_numeric",
+                          Corticotrophs = "assignmentsCorticotrophs.Age_numeric",
+                          Melanotrophs = "assignmentsMelanotrophs.Age_numeric",
+                          Thyrotrophs = "assignmentsThyrotrophs.Age_numeric",
+                          Somatotrophs = "assignmentsSomatotrophs.Age_numeric",
+                          Lactotrophs = "assignmentsLactotrophs.Age_numeric",
+                          assignmentsPituicytes = "assignmentsPituicytes.Age_numeric",
+                          assignmentsImmune_cells = "assignmentsImmune_cells.Age_numeric",
+                          assignmentsMesenchymal_cells = "assignmentsMesenchymal_cells.Age_numeric",
+                          assignmentsEndothelial_cells = "assignmentsEndothelial_cells.Age_numeric"
+                          
+                        )
+)
+
+
+# fit dream model with contrasts
+fit <- dream(vobjDream, form, meta_data, L)
+
+head(coef(fit))
+
+fit <- dream(vobjDream, form, meta_data)
+fit <- eBayes(fit)
+
+```
+
+
+
+
+
+```{r}
+
+background_genes <- rownames(dge)
+#save to /Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/enrichment/aging_enrichment/aging_analysis_summary.csv
+write.csv(background_genes, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/enrichment/aging_enrichment/sc_aging_background_genes.csv", row.names = FALSE)
+
+#####
+#Age effect
+#####
+
+contrast <- makeContrasts(
+  #assignmentsStem_cells - assignmentsLactotrophs, 
+  #assignmentsGonadotrophs.Age_numeric,
+  assignmentsStem_cells.Age_numeric,
+  levels = design
+)
+
+# Compute differential expression
+diff_expression <- contrasts.fit(fit, contrast)
+diff_expression <- eBayes(diff_expression, robust=TRUE)
+
+# Get top differentially expressed genes
+top_genes <- topTable(diff_expression, number = Inf, adjust.method="bonf", lfc=0.5)
+top_genes$genes <- rownames(top_genes)
+print(rownames((top_genes)))
+
+#how many sig
+print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
+
+
+cpdb <- read_csv("/Users/k23030440/epitome_code/epitome/data/gene_group_annotation/v_0.02//cpdb.csv")
+#keep where category is TF and keep gene
+tf_list <- cpdb %>% filter(category == "TF") %>% select(gene) %>% distinct()
+tf_list <- tf_list$gene
+
+
+print("Up TFs with time")
+#rank it by adj.P.val
+print(top_genes %>% filter(genes %in% tf_list & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+print("Down TFs with time")
+print(top_genes %>% filter(genes %in% tf_list & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+
+
+print("Up with time")
+#rank it by adj.P.val
+print(top_genes %>% filter( logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+print("Down  with time")
+print(top_genes %>% filter( logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+
+
+
+#save these tfs up and down
+tfs_up = top_genes %>% filter(genes %in% tf_list & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+tfs_down = top_genes %>% filter(genes %in% tf_list & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+
+tfs_up
+
+tfs_down
+```
+
+
+
+```{r}
+
+#save to "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/
+write.csv(tfs_up, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_tfs_up.csv")
+write.csv(tfs_down, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_tfs_down.csv")
+
+cpdb <- read_csv("/Users/k23030440/epitome_code/epitome/data/gene_group_annotation/v_0.02//cpdb.csv")
+#keep where category is TF and keep gene
+ligands  <- cpdb %>% filter(category == "ligand") %>% select(gene) %>% distinct()
+ligands <- ligands$gene
+receptors  <- cpdb %>% filter(category == "receptor") %>% select(gene) %>% distinct()
+receptors <- receptors$gene
+
+#ligands /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/CellChatDBmouse.csv
+ligands_up = top_genes %>% filter(genes %in% ligands & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+ligands_down = top_genes %>% filter(genes %in% ligands & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+ligands_up
+ligands_down
+
+
+#receptors
+receptors_up = top_genes %>% filter(genes %in% receptors & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+receptors_down = top_genes %>% filter(genes %in% receptors & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+receptors_up
+receptors_down
+
+write.csv(ligands_up, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_ligands_up.csv")
+write.csv(ligands_down, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_ligands_down.csv")
+write.csv(receptors_up, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_receptors_up.csv")
+write.csv(receptors_down, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_receptors_down.csv")
+
+
+```
+
+
+
+
+```{r}
+
+coefs = c("assignmentsCorticotrophs.Age_numeric",
+          "assignmentsEndothelial_cells.Age_numeric", "assignmentsGonadotrophs.Age_numeric",     
+          "assignmentsImmune_cells.Age_numeric",      "assignmentsLactotrophs.Age_numeric",      
+          "assignmentsMelanotrophs.Age_numeric",      "assignmentsMesenchymal_cells.Age_numeric",
+          "assignmentsPituicytes.Age_numeric",        "assignmentsSomatotrophs.Age_numeric",     
+          "assignmentsStem_cells.Age_numeric",        "assignmentsThyrotrophs.Age_numeric" )
+
+
+# Create empty list to store results
+all_results <- list()
+
+# Extract cell types from coefficient names
+get_cell_type <- function(coef_name) {
+  # Remove "assignments" prefix and ".Age_numeric" suffix
+  gsub("assignments(.*)\\.Age_numeric", "\\1", coef_name)
+}
+
+# Iterate through each coefficient
+for(coef in coefs) {
+  # Create contrast matrix
+  contrast <- makeContrasts(
+    contrasts = coef,
+    levels = design
+  )
+  
+  # Compute differential expression
+  diff_expression <- contrasts.fit(fit, contrast)
+  diff_expression <- eBayes(diff_expression, robust=TRUE)
+  
+  # Get top genes
+  top_genes <- topTable(diff_expression, number = Inf,adjust.method="bonf")
+  top_genes$genes <- rownames(top_genes)
+  #print cell type
+  print(get_cell_type(coef))
+  #print number of significant genes
+  print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
+  
+  # Add cell type column
+  top_genes$cell_type <- get_cell_type(coef)
+  
+  # Store results
+  all_results[[coef]] <- top_genes
+}
+
+# Combine all results into single dataframe
+final_results <- do.call(rbind, all_results)
+
+# Reset row names
+rownames(final_results) <- NULL
+
+
+
+#save to /Users/k23030440/epitome_code/epitome/aging/v_0.02
+version = "v_0.02"
+write.csv(final_results, paste0("/Users/k23030440/epitome_code/epitome/data/aging/v_0.02/aging_genes.csv"))
+
+
+final_results <- read.csv(paste0("/Users/k23030440/epitome_code/epitome/data/aging/v_0.02/aging_genes.csv"), header = TRUE, stringsAsFactors = FALSE)
+
+
+```
+
+Defining contrasts
+```{r}
+
+
+L <- makeContrastsDream(form, meta_data,
+                        contrasts = c( 
+                          
+                          #Corticotrophs
+                          assignmentsCorticotrophs__assignmentsGonadotrophs = "assignmentsCorticotrophs - assignmentsGonadotrophs",
+                          assignmentsCorticotrophs__assignmentsMelanotrophs = "assignmentsCorticotrophs - assignmentsMelanotrophs",
+                          assignmentsCorticotrophs__assignmentsThyrotrophs = "assignmentsCorticotrophs - assignmentsThyrotrophs",
+                          assignmentsCorticotrophs__assignmentsSomatotrophs = "assignmentsCorticotrophs - assignmentsSomatotrophs",
+                          assignmentsCorticotrophs__assignmentsLactotrophs = "assignmentsCorticotrophs - assignmentsLactotrophs",
+                          assignmentsCorticotrophs__assignmentsPituicytes = "assignmentsCorticotrophs - assignmentsPituicytes",
+                          assignmentsCorticotrophs__assignmentsImmune_cells = "assignmentsCorticotrophs - assignmentsImmune_cells",
+                          assignmentsCorticotrophs__assignmentsMesenchymal_cells = "assignmentsCorticotrophs - assignmentsMesenchymal_cells",
+                          assignmentsCorticotrophs__assignmentsEndothelial_cells = "assignmentsCorticotrophs - assignmentsEndothelial_cells",
+                          assignmentsCorticotrophs__assignmentsStem_cells = "assignmentsCorticotrophs - assignmentsStem_cells",
+                          
+                          #Gonadotrophs
+                          assignmentsGonadotrophs__assignmentsCorticotrophs = "assignmentsGonadotrophs - assignmentsCorticotrophs",
+                          assignmentsGonadotrophs__assignmentsMelanotrophs = "assignmentsGonadotrophs - assignmentsMelanotrophs",
+                          assignmentsGonadotrophs__assignmentsThyrotrophs = "assignmentsGonadotrophs - assignmentsThyrotrophs",
+                          assignmentsGonadotrophs__assignmentsSomatotrophs = "assignmentsGonadotrophs - assignmentsSomatotrophs",
+                          assignmentsGonadotrophs__assignmentsLactotrophs = "assignmentsGonadotrophs - assignmentsLactotrophs",
+                          assignmentsGonadotrophs__assignmentsPituicytes = "assignmentsGonadotrophs - assignmentsPituicytes",
+                          assignmentsGonadotrophs__assignmentsImmune_cells = "assignmentsGonadotrophs - assignmentsImmune_cells",
+                          assignmentsGonadotrophs__assignmentsMesenchymal_cells = "assignmentsGonadotrophs - assignmentsMesenchymal_cells",
+                          assignmentsGonadotrophs__assignmentsEndothelial_cells = "assignmentsGonadotrophs - assignmentsEndothelial_cells",
+                          assignmentsGonadotrophs__assignmentsStem_cells = "assignmentsGonadotrophs - assignmentsStem_cells",
+                          
+                          #Melanotrophs
+                          assignmentsMelanotrophs__assignmentsGonadotrophs = "assignmentsMelanotrophs - assignmentsGonadotrophs",
+                          assignmentsMelanotrophs__assignmentsCorticotrophs = "assignmentsMelanotrophs - assignmentsCorticotrophs",
+                          assignmentsMelanotrophs__assignmentsThyrotrophs = "assignmentsMelanotrophs - assignmentsThyrotrophs",
+                          assignmentsMelanotrophs__assignmentsSomatotrophs = "assignmentsMelanotrophs - assignmentsSomatotrophs",
+                          assignmentsMelanotrophs__assignmentsLactotrophs = "assignmentsMelanotrophs - assignmentsLactotrophs",
+                          assignmentsMelanotrophs__assignmentsPituicytes = "assignmentsMelanotrophs - assignmentsPituicytes",
+                          assignmentsMelanotrophs__assignmentsImmune_cells = "assignmentsMelanotrophs - assignmentsImmune_cells",
+                          assignmentsMelanotrophs__assignmentsMesenchymal_cells = "assignmentsMelanotrophs - assignmentsMesenchymal_cells",
+                          assignmentsMelanotrophs__assignmentsEndothelial_cells = "assignmentsMelanotrophs - assignmentsEndothelial_cells",
+                          assignmentsMelanotrophs__assignmentsStem_cells = "assignmentsMelanotrophs - assignmentsStem_cells",
+                          
+                          
+                          #Thyrotrophs
+                          assignmentsThyrotrophs__assignmentsGonadotrophs = "assignmentsThyrotrophs - assignmentsGonadotrophs",
+                          assignmentsThyrotrophs__assignmentsCorticotrophs = "assignmentsThyrotrophs - assignmentsCorticotrophs",
+                          assignmentsThyrotrophs__assignmentsMelanotrophs = "assignmentsThyrotrophs - assignmentsMelanotrophs",
+                          assignmentsThyrotrophs__assignmentsSomatotrophs = "assignmentsThyrotrophs - assignmentsSomatotrophs",
+                          assignmentsThyrotrophs__assignmentsLactotrophs = "assignmentsThyrotrophs - assignmentsLactotrophs",
+                          assignmentsThyrotrophs__assignmentsPituicytes = "assignmentsThyrotrophs - assignmentsPituicytes",
+                          assignmentsThyrotrophs__assignmentsImmune_cells = "assignmentsThyrotrophs - assignmentsImmune_cells",
+                          assignmentsThyrotrophs__assignmentsMesenchymal_cells = "assignmentsThyrotrophs - assignmentsMesenchymal_cells",
+                          assignmentsThyrotrophs__assignmentsEndothelial_cells = "assignmentsThyrotrophs - assignmentsEndothelial_cells",
+                          assignmentsThyrotrophs__assignmentsStem_cells = "assignmentsThyrotrophs - assignmentsStem_cells",
+                          
+                          
+                          
+                          #Somatotrophs
+                          assignmentsSomatotrophs__assignmentsGonadotrophs = "assignmentsSomatotrophs - assignmentsGonadotrophs",
+                          assignmentsSomatotrophs__assignmentsCorticotrophs = "assignmentsSomatotrophs - assignmentsCorticotrophs",
+                          assignmentsSomatotrophs__assignmentsMelanotrophs = "assignmentsSomatotrophs - assignmentsMelanotrophs",
+                          assignmentsSomatotrophs__assignmentsThyrotrophs = "assignmentsSomatotrophs - assignmentsThyrotrophs",
+                          assignmentsSomatotrophs__assignmentsLactotrophs = "assignmentsSomatotrophs - assignmentsLactotrophs",
+                          assignmentsSomatotrophs__assignmentsPituicytes = "assignmentsSomatotrophs - assignmentsPituicytes",
+                          assignmentsSomatotrophs__assignmentsImmune_cells = "assignmentsSomatotrophs - assignmentsImmune_cells",
+                          assignmentsSomatotrophs__assignmentsMesenchymal_cells = "assignmentsSomatotrophs - assignmentsMesenchymal_cells",
+                          assignmentsSomatotrophs__assignmentsEndothelial_cells = "assignmentsSomatotrophs - assignmentsEndothelial_cells",
+                          assignmentsSomatotrophs__assignmentsStem_cells = "assignmentsSomatotrophs - assignmentsStem_cells",
+                          
+                          
+                          #Lactotrophs
+                          assignmentsLactotrophs__assignmentsGonadotrophs = "assignmentsLactotrophs - assignmentsGonadotrophs",
+                          assignmentsLactotrophs__assignmentsCorticotrophs = "assignmentsLactotrophs - assignmentsCorticotrophs",
+                          assignmentsLactotrophs__assignmentsMelanotrophs = "assignmentsLactotrophs - assignmentsMelanotrophs",
+                          assignmentsLactotrophs__assignmentsThyrotrophs = "assignmentsLactotrophs - assignmentsThyrotrophs",
+                          assignmentsLactotrophs__assignmentsSomatotrophs = "assignmentsLactotrophs - assignmentsSomatotrophs",
+                          assignmentsLactotrophs__assignmentsPituicytes = "assignmentsLactotrophs - assignmentsPituicytes",
+                          assignmentsLactotrophs__assignmentsImmune_cells = "assignmentsLactotrophs - assignmentsImmune_cells",
+                          assignmentsLactotrophs__assignmentsMesenchymal_cells = "assignmentsLactotrophs - assignmentsMesenchymal_cells",
+                          assignmentsLactotrophs__assignmentsEndothelial_cells = "assignmentsLactotrophs - assignmentsEndothelial_cells",
+                          assignmentsLactotrophs__assignmentsStem_cells = "assignmentsLactotrophs - assignmentsStem_cells",
+                          
+                          
+                          #Pituicytes
+                          assignmentsPituicytes__assignmentsGonadotrophs = "assignmentsPituicytes - assignmentsGonadotrophs",
+                          assignmentsPituicytes__assignmentsCorticotrophs = "assignmentsPituicytes - assignmentsCorticotrophs",
+                          assignmentsPituicytes__assignmentsMelanotrophs = "assignmentsPituicytes - assignmentsMelanotrophs",
+                          assignmentsPituicytes__assignmentsThyrotrophs = "assignmentsPituicytes - assignmentsThyrotrophs",
+                          assignmentsPituicytes__assignmentsSomatotrophs = "assignmentsPituicytes - assignmentsSomatotrophs",
+                          assignmentsPituicytes__assignmentsLactotrophs = "assignmentsPituicytes - assignmentsLactotrophs",
+                          assignmentsPituicytes__assignmentsImmune_cells = "assignmentsPituicytes - assignmentsImmune_cells",
+                          assignmentsPituicytes__assignmentsMesenchymal_cells = "assignmentsPituicytes - assignmentsMesenchymal_cells",
+                          assignmentsPituicytes__assignmentsEndothelial_cells = "assignmentsPituicytes - assignmentsEndothelial_cells",
+                          assignmentsPituicytes__assignmentsStem_cells = "assignmentsPituicytes - assignmentsStem_cells",
+                          
+                          
+                          #Immune_cells
+                          assignmentsImmune_cells__assignmentsGonadotrophs = "assignmentsImmune_cells - assignmentsGonadotrophs",
+                          assignmentsImmune_cells__assignmentsCorticotrophs = "assignmentsImmune_cells - assignmentsCorticotrophs",
+                          assignmentsImmune_cells__assignmentsMelanotrophs = "assignmentsImmune_cells - assignmentsMelanotrophs",
+                          assignmentsImmune_cells__assignmentsThyrotrophs = "assignmentsImmune_cells - assignmentsThyrotrophs",
+                          assignmentsImmune_cells__assignmentsSomatotrophs = "assignmentsImmune_cells - assignmentsSomatotrophs",
+                          assignmentsImmune_cells__assignmentsLactotrophs = "assignmentsImmune_cells - assignmentsLactotrophs",
+                          assignmentsImmune_cells__assignmentsPituicytes = "assignmentsImmune_cells - assignmentsPituicytes",
+                          assignmentsImmune_cells__assignmentsMesenchymal_cells = "assignmentsImmune_cells - assignmentsMesenchymal_cells",
+                          assignmentsImmune_cells__assignmentsEndothelial_cells = "assignmentsImmune_cells - assignmentsEndothelial_cells",
+                          assignmentsImmune_cells__assignmentsStem_cells = "assignmentsImmune_cells - assignmentsStem_cells",
+                          
+                          
+                          #Mesenchymal_cells
+                          assignmentsMesenchymal_cells__assignmentsGonadotrophs = "assignmentsMesenchymal_cells - assignmentsGonadotrophs",
+                          assignmentsMesenchymal_cells__assignmentsCorticotrophs = "assignmentsMesenchymal_cells - assignmentsCorticotrophs",
+                          assignmentsMesenchymal_cells__assignmentsMelanotrophs = "assignmentsMesenchymal_cells - assignmentsMelanotrophs",
+                          assignmentsMesenchymal_cells__assignmentsThyrotrophs = "assignmentsMesenchymal_cells - assignmentsThyrotrophs",
+                          assignmentsMesenchymal_cells__assignmentsSomatotrophs = "assignmentsMesenchymal_cells - assignmentsSomatotrophs",
+                          assignmentsMesenchymal_cells__assignmentsLactotrophs = "assignmentsMesenchymal_cells - assignmentsLactotrophs",
+                          assignmentsMesenchymal_cells__assignmentsPituicytes = "assignmentsMesenchymal_cells - assignmentsPituicytes",
+                          assignmentsMesenchymal_cells__assignmentsImmune_cells = "assignmentsMesenchymal_cells - assignmentsImmune_cells",
+                          assignmentsMesenchymal_cells__assignmentsEndothelial_cells = "assignmentsMesenchymal_cells - assignmentsEndothelial_cells",
+                          assignmentsMesenchymal_cells__assignmentsStem_cells = "assignmentsMesenchymal_cells - assignmentsStem_cells",
+                          
+                          
+                          #Endothelial_cells
+                          assignmentsEndothelial_cells__assignmentsGonadotrophs = "assignmentsEndothelial_cells - assignmentsGonadotrophs",
+                          assignmentsEndothelial_cells__assignmentsCorticotrophs = "assignmentsEndothelial_cells - assignmentsCorticotrophs",
+                          assignmentsEndothelial_cells__assignmentsMelanotrophs = "assignmentsEndothelial_cells - assignmentsMelanotrophs",
+                          assignmentsEndothelial_cells__assignmentsThyrotrophs = "assignmentsEndothelial_cells - assignmentsThyrotrophs",
+                          assignmentsEndothelial_cells__assignmentsSomatotrophs = "assignmentsEndothelial_cells - assignmentsSomatotrophs",
+                          assignmentsEndothelial_cells__assignmentsLactotrophs = "assignmentsEndothelial_cells - assignmentsLactotrophs",
+                          assignmentsEndothelial_cells__assignmentsPituicytes = "assignmentsEndothelial_cells - assignmentsPituicytes",
+                          assignmentsEndothelial_cells__assignmentsImmune_cells = "assignmentsEndothelial_cells - assignmentsImmune_cells",
+                          assignmentsEndothelial_cells__assignmentsMesenchymal_cells = "assignmentsEndothelial_cells - assignmentsMesenchymal_cells",
+                          assignmentsEndothelial_cells__assignmentsStem_cells = "assignmentsEndothelial_cells - assignmentsStem_cells",
+                          
+                          
+                          #Stem cells
+                          assignmentsStem_cells__assignmentsGonadotrophs = "assignmentsStem_cells - assignmentsGonadotrophs",
+                          assignmentsStem_cells__assignmentsCorticotrophs = "assignmentsStem_cells - assignmentsCorticotrophs",
+                          assignmentsStem_cells__assignmentsMelanotrophs = "assignmentsStem_cells - assignmentsMelanotrophs",
+                          assignmentsStem_cells__assignmentsThyrotrophs = "assignmentsStem_cells - assignmentsThyrotrophs",
+                          assignmentsStem_cells__assignmentsSomatotrophs = "assignmentsStem_cells - assignmentsSomatotrophs",
+                          assignmentsStem_cells__assignmentsLactotrophs = "assignmentsStem_cells - assignmentsLactotrophs",
+                          assignmentsStem_cells__assignmentsPituicytes = "assignmentsStem_cells - assignmentsPituicytes",
+                          assignmentsStem_cells__assignmentsImmune_cells = "assignmentsStem_cells - assignmentsImmune_cells",
+                          assignmentsStem_cells__assignmentsMesenchymal_cells = "assignmentsStem_cells - assignmentsMesenchymal_cells",
+                          assignmentsStem_cells__assignmentsEndothelial_cells = "assignmentsStem_cells - assignmentsEndothelial_cells"
+ 
+                        )
+)
+
+```
+
+
+```{r}
+
+#keep only padj < 0.05
+final_results_pan_pit <- final_results[final_results$adj.P.Val < 0.05,]
+#filter log2fc for abs 0.5
+final_results_pan_pit <- final_results_pan_pit[abs(final_results_pan_pit$logFC) >= 0.5,]
+#remove where cell_type "Mesenchymal_cells" "Pituicytes"   "Immune_cells" "Endothelial_cells"
+final_results_pan_pit <- final_results_pan_pit[!final_results_pan_pit$cell_type %in% c("Mesenchymal_cells", "Pituicytes", "Immune_cells", "Endothelial_cells"),]
+#calc avg logFC and geom avg adj pval
+final_results_pan_pit$avg_logFC <- ave(final_results_pan_pit$logFC, final_results_pan_pit$genes, FUN = mean)
+#geom avg adj pval
+final_results_pan_pit$avg_adj_pval <- ave(final_results_pan_pit$adj.P.Val, final_results_pan_pit$genes, FUN = function(x) prod(x)^(1/length(x)))
+#add another column saying number of times a given gene occurs
+final_results_pan_pit$gene_count <- ave(final_results_pan_pit$genes, final_results_pan_pit$genes, FUN = length)
+
+final_results_pan_pit <- final_results_pan_pit[!duplicated(final_results_pan_pit$genes),]
+#at least 3 gene count
+final_results_pan_pit <- final_results_pan_pit[final_results_pan_pit$gene_count >= 3,]
+final_results_pan_pit
+
+#order according to gene_count
+final_results_pan_pit <- final_results_pan_pit[order(final_results_pan_pit$gene_count, decreasing = TRUE),]
+
+#save these genes as csv
+#/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/DE/pan_pituitary_ageing.csv
+write.csv(final_results_pan_pit, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/pan_pituitary_ageing.csv")
+#clipboard gene names
+unique_pan_pit_genes = final_results_pan_pit$genes
+library(clipr)
+write_clip(paste(unique_pan_pit_genes, collapse = "\n"))
+
+```
+
+
+```{r}
+
+
+# Load required packages
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# Highlight specific genes of interest
+genes_of_interest <- c("Wnt10a","Wnt16","Wnt6","Fzd2","Fzd9","Fzd10","Wif1","Lef1","Rspo4","Sfrp1","Sfrp2","Sfrp5","Apcdd1","Tnfrsf19","Sostdc1",
+                       "Cdk1","Cdk2","Ccna1","Ccnb1","H19","E2f8","E2f1","Mki67","Top2a","Ube2c","Aurkb",
+                       "Lcn2","Cxcl13","Ccl5","H2-Aa","H2-K1","H2-Ab1","Ifit3","Ifit3b","C1qc","C1qa","Il1b","Il6","Il18","Il17rc","Il15ra","Igha")
+
+#keep only where genes in final_results_pan_pit
+genes_of_interest <- genes_of_interest[genes_of_interest %in% final_results_pan_pit$genes]
+# Create the heatmap
+plot <- final_results %>%
+  # Filter to only include genes of interest
+  filter(genes %in% genes_of_interest) %>%
+  # Create a significance flag and preserve input order
+  dplyr::mutate(is_significant = adj.P.Val < 0.05,
+                # Add line thickness variable
+                line_size = ifelse(genes %in% genes_of_interest, 0.6, 0.4),
+                # Convert genes to factor with levels in the exact order specified
+                genes = factor(genes, levels = genes_of_interest)) %>%
+  # Create the plot
+  ggplot(aes(x = cell_type, y = genes, fill = logFC)) +
+  geom_tile(aes(color = is_significant, size = line_size), 
+            width = 0.8, height = 0.8) +
+  # Set color scales
+  scale_fill_gradient2(low = "#ffa500", mid = "white", 
+                       high = "#63b3ed", midpoint = 0) +
+  scale_color_manual(values = c("FALSE" = "gray", "TRUE" = "red"),
+                     name = "Significant",
+                     labels = c("FALSE" = "Not Significant", "TRUE" = "Significant"),
+                     guide = guide_legend(override.aes = list(
+                       fill = "white",
+                       size = 1,
+                       linetype = 1,
+                       linewidth = 2
+                     ))) +
+  scale_size_identity() +
+  # Customize theme
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size =10),
+        axis.title = element_blank(),
+        panel.grid = element_blank()) +
+  #y axis italics
+  theme(axis.text.y = element_text(size = 10, face = "italic")) +
+  labs(fill = "logFC")
+
+plot
+
+
+#save plot to/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/DE
+ggsave(plot, filename = "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/DE/heatmap_aging_genes.png", width = 5.1, height = 5.0, dpi = 300)
+#also svg
+ggsave(plot, filename = "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/DE/heatmap_aging_genes.svg", width = 5.1, height = 5.0, dpi = 300)
+
+```
+
+```{r}
+
+
+
+# Process the final_results data for plotting
+library(ggplot2)
+library(dplyr)
+
+# Create a dataframe to store the counts of age-related genes per cell type
+age_genes <- list()
+cell_types <- unique(final_results$cell_type)
+
+for (cell_type in cell_types) {
+  # Filter results for this cell type
+  cell_results <- final_results[final_results$cell_type == cell_type, ]
+  
+  # Count significant genes (adj.P.Val < 0.05)
+  # Positive logFC = increased with age, negative = decreased with age
+  increased_genes <- nrow(cell_results[cell_results$adj.P.Val < 0.05 & cell_results$logFC > 0, ])
+  decreased_genes <- nrow(cell_results[cell_results$adj.P.Val < 0.05 & cell_results$logFC < 0, ])
+  
+  age_genes[[cell_type]] <- list(
+    increased = increased_genes,
+    decreased = decreased_genes
+  )
+  
+  cat(sprintf("%s: %d increased, %d decreased genes with aging\n", 
+              cell_type, increased_genes, decreased_genes))
+}
+
+# Create dataframe for plotting
+plot_data <- data.frame(
+  cell_type = names(age_genes),
+  increased_genes = sapply(age_genes, function(x) x$increased),
+  decreased_genes = sapply(age_genes, function(x) x$decreased)
+)
+#remove Immune_cells
+#plot_data <- plot_data[!grepl("Immune_cells", plot_data$cell_type), ]
+# Reshape the data for plotting
+plot_data_long <- rbind(
+  data.frame(
+    cell_type = plot_data$cell_type,
+    count = -plot_data$decreased_genes,  # Negative for decreased to show on left
+    change = "Decreased",
+    label = plot_data$decreased_genes    # Positive label
+  ),
+  data.frame(
+    cell_type = plot_data$cell_type,
+    count = plot_data$increased_genes,
+    change = "Increased",
+    label = plot_data$increased_genes
+  )
+)
+
+# Format labels
+plot_data_long$label[plot_data_long$label == 0] <- ""
+plot_data_long$label <- ifelse(plot_data_long$change == "Increased", 
+                               paste0("   ", plot_data_long$label),
+                               plot_data_long$label)
+
+# Ensure count is numeric
+plot_data_long$count <- as.numeric(plot_data_long$count)
+
+# Calculate total differentially expressed genes per cell type and reorder
+plot_data_long <- plot_data_long %>%
+  group_by(cell_type) %>%
+  dplyr::mutate(total_diff_exp = sum(abs(count))) %>% # Total absolute differentially expressed genes
+  ungroup() %>%
+  arrange(desc(total_diff_exp)) %>%            # Order by total genes
+  dplyr::mutate(cell_type = factor(cell_type, levels = unique(cell_type))) # Maintain order
+
+# Add a column for fixed label positions
+plot_data_long <- plot_data_long %>%
+  dplyr::mutate(label_position = ifelse(count > 0, 400, -400)) # Labels at fixed positions
+
+# Plot
+plt = ggplot(plot_data_long, aes(x = cell_type, y = count, fill = change)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(aes(label = label, y = label_position), # Use fixed label positions
+            color = "black",
+            size = 5) +
+  scale_fill_manual(values = c("Decreased" = "#FFA500", "Increased" = "#63B3ED")) +
+  scale_y_continuous(
+    labels = abs,  # Show absolute values on axis
+    limits = c(-max(abs(plot_data_long$count)) * 1.2, max(abs(plot_data_long$count)) * 1.2) # Symmetric axis
+  ) +
+  coord_flip() +
+  labs(
+    title = "Age-related Genes Across Cell Types",
+    x = "Cell Type",
+    y = "Number of Age-related Genes",
+    fill = ""
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    legend.position = "top",
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    legend.text = element_text(size = 16)
+  )
+
+print(plt)
+
+```
+
+
+
+```{r}
+# Save the plot as PNG and SVG
+output_dir <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE"
+
+# PNG with high resolution
+ggsave(
+  filename = file.path(output_dir, "age_related_genes.png"),
+  plot = plt,
+  width = 5.5,
+  height = 6,
+  dpi = 300
+)
+
+# SVG format
+ggsave(
+  filename = file.path(output_dir, "age_related_genes.svg"),
+  plot = plt,
+  width = 5.5,
+  height = 6
+)
+
+print(plt)
+
+```
+
+
+
+
+
+

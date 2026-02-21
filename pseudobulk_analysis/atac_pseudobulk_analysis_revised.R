@@ -707,6 +707,7 @@ write.table(colnames(normalized_expression),
             "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/accessibility/v_0.01/accessibility_columns.txt", 
             row.names = FALSE, col.names = FALSE, quote = FALSE)
 
+
 library(Matrix)
 normalized_expression <- as(normalized_expression, "CsparseMatrix")
 writeMM(normalized_expression, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/accessibility/v_0.01/normalized_data.mtx")
@@ -1833,78 +1834,5 @@ ggsave(plt_scs, filename = file.path(output_dir, "sc_top20_motifs.svg"),
 print(plt_scs)
 
 
-
-########## Cell typing peaks
-
-
-# Main loop
-all_markers <- list()
-#initialise empty df 
-all_markers_df <- data.frame()
-celltypes <- unique(meta_data$cell_type)
-for (celltype in celltypes) {
-  other_celltypes <- setdiff(celltypes, celltype)
-  significant_genes <- compare_celltype(celltype, other_celltypes, design, fit, 0)
-  
-  # Find genes significant in all but at most one comparison
-  min_required <- length(other_celltypes)
-  markers <- significant_genes %>% group_by(gene) %>% filter(n() >= min_required) 
-  #only keep if log2fc is ALWAYS > 2
-  markers <- markers %>% group_by(gene) %>% filter(all(logFC > 1)) %>% summarise(log2fc = mean(logFC), pval = exp(mean(log(adj.P.Val))), avg_expr = mean(AveExpr))
-  #order by pval
-  markers <- markers %>% arrange(pval)
-  #add col about cell types
-  markers$celltype <- celltype
-  
-  
-  #add markers to all_markers_df
-  all_markers_df <- rbind(all_markers_df, markers)
-  
-  #remove dups
-  markers <- unique(markers%>% pull(gene))
-  all_markers[[celltype]] <- markers
-}
-
-
-all_markers_df <- all_markers_df %>% arrange(pval)
-
-
-#save it to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/cell_typing_markers_atac.csv
-write.csv(all_markers_df, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/cell_typing_markers_atac.csv")
-write.csv(all_markers_df, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/epitome/data/markers/v_0.01/cell_typing_markers_atac.csv")
-
-#print top 5 marker for each cell type 
-all_markers_df <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/cell_typing_markers_atac.csv")
-coefs_table <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/coef.csv")
-rownames(coefs_table) <- coefs_table$X
-#remove first col
-coefs_table <- coefs_table[, -1]
-#for each col name remove assignments in coefs_table
-colnames(coefs_table) <- gsub("assignments", "", colnames(coefs_table))
-#add a new col to all_markers_df called avg_exp, get this value by finding the cell_type as a column in coefs_table and then accessing the gene (row_index) and get value
-all_markers_df$avg_exp <- NA
-for (i in 1:nrow(all_markers_df)) {
-  gene <- all_markers_df$gene[i]
-  celltype <- all_markers_df$celltype[i]
-  all_markers_df$avg_exp[i] <- coefs_table[gene, celltype]
-}
-
-#keep those with at least 5 > avg_exp
-all_markers_df <- all_markers_df %>% filter(avg_exp > 3)
-
-
-
-celltypes <- unique(all_markers_df$celltype)
-
-for (ct in celltypes) {
-  print(all_markers_df %>% dplyr::filter(celltype == ct) %>% head(5))
-}
-
-
-# Create final markers dataframe, handling empty marker lists
-markers_df <- all_markers_df %>% dplyr::select(gene, celltype, avg_exp, pval) %>% arrange(celltype, pval)
-
-# Remove rows with NA genes
-markers_df <- markers_df %>% filter(!is.na(gene))
 
 

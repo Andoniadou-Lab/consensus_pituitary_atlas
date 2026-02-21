@@ -1,0 +1,1129 @@
+---
+title: "Generating variance partition plots"
+author: "Bence Kover"
+date: "2026-01-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Loading dependencies
+
+```{r}
+library(DESeq2)
+library(limma)
+library(edgeR)
+library(tidyverse)
+library(org.Mm.eg.db)
+library(reticulate)
+library(Seurat)
+```
+
+
+
+```{r}
+
+version="v_0.02"
+h5ad_file <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/pb_h5ad_2026_01_28.h5ad"
+# Read the .h5ad file using reticulate
+anndata <- reticulate::import("anndata")
+py_index <- reticulate::import("pandas")$Index
+adata <- anndata$read_h5ad(h5ad_file)
+
+multiome_path = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/pdata_assigned.h5ad"
+
+multiome <- t(anndata$read_h5ad(multiome_path)$X)
+
+multiome_metadata = as.data.frame(anndata$read_h5ad(multiome_path)$obs)
+
+#cell_type_final rename to cell_type, GEO to sample
+colnames(multiome_metadata)[colnames(multiome_metadata) == "cell_type_final"] <- "cell_type"
+colnames(multiome_metadata)[colnames(multiome_metadata) == "GEO"] <- "sample"
+
+vars_multi = py_to_r(anndata$read_h5ad(multiome_path)$var_names$to_list())
+
+# Convert the data to Seurat object
+# Seurat expects the count matrix to be in column-major order (genes x cells)
+counts <- t(adata$X) # Transpose to convert to column-major order
+meta_data <- as.data.frame(adata$obs) # Convert obs to a data frame
+colnames(meta_data)[colnames(meta_data) == "GEO"] <- "sample"
+vars <- adata$var
+vars <-  py_to_r(adata$var_names$to_list())
+vars
+
+#whats the overlap of vars and vars_multi
+print(length(intersect(vars, vars_multi)))
+
+# Create the Seurat object
+seurat_object <- CreateSeuratObject(counts = counts, meta.data = meta_data)
+rownames(seurat_object) <- vars
+seurat_object_multi<- CreateSeuratObject(counts = multiome, meta.data = multiome_metadata)
+rownames(seurat_object_multi) <- vars_multi
+
+#merge all
+all_seurat <- merge(seurat_object, y = c(seurat_object_multi),
+                    add.cell.ids = c("all","multi"),
+                    project = "atac_pseudobulk")
+
+all_seurat<- JoinLayers(all_seurat)
+
+seurat_object<- all_seurat
+
+#save as /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/consensus_chromatin_landscape.csv
+write.csv(vars, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/consensus_chromatin_landscape.csv", row.names = FALSE)
+write.csv(vars, "/Users/k23030440/epitome_code/epitome/data/additional_downloads/consensus_chromatin_landscape/v_0.02/consensus_chromatin_landscape.csv", row.names = FALSE)
+
+
+root = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/"
+figs_folder = paste(root,"Figures/",sep="")
+
+meta_data = seurat_object@meta.data
+meta_data$index <- 1:nrow(meta_data)
+#rename sample to GEO
+meta_data$GEO = meta_data$sample
+
+meta2 = read.csv("/Users/k23030440/epitome_code/epitome/data/curation/v_0.02/cpa.csv")
+#rename GEO to sample
+colnames(meta2)[colnames(meta2) == "GEO"] <- "sample"
+
+meta2_first <- meta2[!duplicated(meta2$sample), ]
+
+#metadata only keep sample column
+meta_data = meta_data[,c("sample","index")]
+# Then merge will maintain row dimensions
+meta_data <- merge(meta_data, meta2_first, by="sample", all.x=TRUE)
+#reorder based on index
+meta_data <- meta_data[order(meta_data$index),]
+
+seurat_object <- AddMetaData(seurat_object, meta_data)
+
+#print unique SRA_ID
+print(length(unique(meta_data$SRA_ID)))
+
+meta_data %>%
+  distinct(SRA_ID, Comp_sex) %>%  
+  count(Comp_sex, name = "num_SRA_IDs")
+
+meta_data = seurat_object@meta.data
+
+expression_table = seurat_object@assays$RNA$counts
+```
+
+
+```{r}
+
+##########################
+
+library(limma)
+library(edgeR)
+# Ensure valid column names for assignments and exptype
+meta_data$assignments <- make.names(meta_data$cell_type)
+meta_data$exptype <- make.names(meta_data$Modality)
+
+# Remove any remaining problematic characters
+meta_data$assignments <- gsub("[^A-Za-z0-9_]", "", meta_data$assignments)
+meta_data$exptype <- gsub("[^A-Za-z0-9_]", "", meta_data$exptype)
+
+#remove where assignment is Blood
+expression_table <- expression_table[,meta_data$assignments != "Erythrocytes"]
+meta_data <- meta_data[meta_data$assignments != "Erythrocytes",]
+
+#where Modality is multi_rna turn to multi_atac
+meta_data$exptype[meta_data$Modality == "multi_rna"] <- "multi_atac"
+
+# Ensure valid column names for assignments and exptype
+meta_data$assignments <- make.names(meta_data$assignments)
+meta_data$exptype <- make.names(meta_data$Modality)
+meta_data$Sex <- make.names(meta_data$Comp)
+
+# Remove any remaining problematic characters
+meta_data$assignments <- gsub("[^A-Za-z0-9_]", "", meta_data$assignments)
+meta_data$exptype <- gsub("[^A-Za-z0-9_]", "", meta_data$exptype)
+meta_data$Sex <- gsub("[^A-Za-z0-9_]", "", meta_data$Sex)
+
+print(meta_data$exptype)
+#add a new column called index
+meta_data$index <- 1:nrow(meta_data)
+#make index the rownames
+rownames(meta_data) <- meta_data$index
+
+# Convert to numeric
+meta_data$psbulk_n_cells <- as.numeric(as.character(meta_data$psbulk_n_cells))
+
+expression_table <- sweep(expression_table, 2, meta_data$psbulk_n_cells, "/")
+
+expression_table <- expression_table * median(meta_data$psbulk_n_cells)
+
+#where multi_rna changer to multi_atac
+meta_data$exptype[meta_data$exptype == "multi_rna"] <- "multi_atac"
+
+
+dge = DGEList(counts = expression_table, group = meta_data$assignments)
+dge <- calcNormFactors(dge, method = "TMMwsp")
+```
+
+
+
+
+```{r}
+
+# Create the design matrix
+design <- model.matrix(~ 0 + assignments , data = meta_data) 
+
+#remove genes expressed in less than 10% of the samples or with less than 1000 total counts
+keep_genes <- filterByExpr(dge, design, min.total.count = 300, min.prop= 0.1)
+print(sum(keep_genes))
+#pull out rownames starting with mt or rpl or rps
+dge <- dge[keep_genes, ]
+dim(dge)
+
+fit <- voom(dge, design, plot=TRUE)
+
+fit <- lmFit(fit, design)
+
+###
+# Make column names valid
+colnames(design) <- make.names(colnames(design), unique = TRUE)
+
+print(head(coef(fit)))
+#turn coef(fit) into a dataframe
+coef_df = as.data.frame(coef(fit))
+
+#save 
+write.csv(as.data.frame(coef(fit)), "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/coef_2026_02_14.csv")
+
+coef_df = read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/coef_2026_02_14.csv")
+
+dim(coef_df)
+coef_df$gene = rownames(coef_df)
+
+# Create contrast
+contrast <- makeContrasts(
+  #assignmentsCorticotrophs - assignmentsMelanotrophs, 
+  assignmentsCorticotrophs - assignmentsMelanotrophs,
+  levels = design
+)
+
+# Compute differential expression
+diff_expression <- contrasts.fit(fit, contrast)
+diff_expression <- eBayes(diff_expression, trend = TRUE)
+
+# Get top differentially expressed genes
+top_genes <- topTable(diff_expression, number = Inf, sort.by = "P", lfc = 0.5)
+top_genes$genes <- rownames(top_genes)
+print(head(top_genes))
+
+#print how many are adj.P.val < 0.05
+print(sum(top_genes$adj.P.Val < 0.05))
+
+#make scatterplot of log2fc and pval
+plot(top_genes$logFC, -log10(top_genes$P.Value), alpha=0.1,xlab = "log2 fold change", ylab = "-log10 p-value", main = "Volcano plot of differential expression", pch = 20, col = ifelse(top_genes$adj.P.Val < 0.05, "red", "black"))
+
+
+```
+
+
+```{r}
+
+#print total number of peaks
+print(nrow(top_genes))
+
+# Initialize a list to store upregulated genes for each cell type
+all_upregulated_genes <- list()
+
+# Get unique cell types
+celltypes <- unique(meta_data$assignments)
+
+# Function to compare one cell type against all others
+compare_celltype <- function(celltype, other_celltypes, design, fit, log2fc=-Inf) {
+  significant_genes <- data.frame()
+  
+  for (other in other_celltypes) {
+    contrast_name <- paste0("assignments", celltype)
+    other_contrast_name <- paste0("assignments", other)
+    
+    if (!(contrast_name %in% colnames(design)) || !(other_contrast_name %in% colnames(design))) {
+      next
+    }
+    
+    contrast <- makeContrasts(contrasts = paste0(contrast_name, " - ", other_contrast_name), 
+                              levels = design)
+    
+    fit2 <- eBayes(contrasts.fit(fit, contrast))
+    
+    sig_genes <- topTable(fit2, number = Inf, lfc = 0.5) %>%
+      rownames_to_column("gene") %>%
+      dplyr::filter(adj.P.Val < 0.05 & logFC > log2fc) %>%
+      mutate(group1 = celltype,
+             group2 = other)
+    
+    significant_genes <- bind_rows(significant_genes, sig_genes)
+  }
+  
+  return(significant_genes)
+}
+
+# Perform comparisons for all cell types
+all_comparisons <- data.frame()
+
+library(tidyverse)
+for (celltype in celltypes) {
+  other_celltypes <- celltypes[celltypes != celltype]
+  comparison_results <- compare_celltype(celltype, other_celltypes, design, fit)
+  all_comparisons <- bind_rows(all_comparisons, comparison_results)
+}
+
+# Display the first few rows of the results
+print(head(all_comparisons))
+```
+
+
+
+```{r}
+grouping_1 <- list(list("Stem_cells"), list("Melanotrophs","Corticotrophs",
+                                            "Somatotrophs", "Lactotrophs","Thyrotrophs",
+                                            "Gonadotrophs"))
+
+grouping_2 <- list(list("Gonadotrophs"), list("Melanotrophs","Corticotrophs",
+                                              "Somatotrophs", "Lactotrophs","Thyrotrophs",
+                                              "Stem_cells"))
+
+grouping_3 <- list(list("Melanotrophs","Corticotrophs"), list(
+  "Somatotrophs", "Lactotrophs","Thyrotrophs",
+  "Gonadotrophs", "Stem_cells"))
+
+grouping_4 <- list(list("Melanotrophs"), list("Corticotrophs"))
+
+grouping_5 <- list(list("Somatotrophs", "Lactotrophs","Thyrotrophs"), list(
+  "Gonadotrophs", "Stem_cells", "Melanotrophs",
+  "Corticotrophs"))
+
+grouping_6 <- list(list("Lactotrophs"), list("Somatotrophs", "Thyrotrophs"))
+
+grouping_7 <- list(list("Somatotrophs"), list("Lactotrophs", "Thyrotrophs"))
+
+grouping_8 <- list(list("Thyrotrophs"), list("Lactotrophs", "Somatotrophs"))
+
+grouping_lists = list(grouping_1, grouping_2, grouping_3, grouping_4, grouping_5, grouping_6, grouping_7, grouping_8)
+```
+
+```{r}
+#############
+#Processing groupings
+#############
+# Function to find significant genes in the same direction across all comparisons in a grouping
+find_significant_genes <- function(all_comparisons, groupings1, groupings2, adj_p_threshold = 0.05) {
+  # Create all pairwise comparisons
+  comps_left <- c()
+  comps_right <- c()
+  n_comps <- length(groupings1) * length(groupings2)
+  
+  # Corrected nested loops
+  for (i in 1:length(groupings1)) {
+    for (j in 1:length(groupings2)) {
+      comps_left <- c(comps_left, groupings1[[i]])
+      comps_right <- c(comps_right, groupings2[[j]])
+    }
+  }
+  
+  # Function to get significant genes for a single comparison
+  get_sig_genes <- function(comparison) {
+    subset <- all_comparisons[all_comparisons$group1 == comparison$group1 & 
+                                all_comparisons$group2 == comparison$group2, ]
+    sig_genes <- subset$gene[subset$adj.P.Val < adj_p_threshold]
+    
+    data.frame(gene = sig_genes, 
+               direction = ifelse(subset$logFC[subset$gene %in% sig_genes] > 0, "up", "down"),
+               log2fc = subset$logFC[subset$gene %in% sig_genes],
+               pvalue = subset$adj.P.Val[subset$gene %in% sig_genes] + 10 ^ -300,
+               stringsAsFactors = FALSE)
+  }
+  
+  # Get significant genes for all comparisons and stitch to a single df
+  sig_genes_list <- data.frame(gene = character(), direction = character(), stringsAsFactors = FALSE)
+  for (i in 1:length(comps_left)) {
+    new_genes <- get_sig_genes(data.frame(group1 = comps_left[i], group2 = comps_right[i]))
+    sig_genes_list <- rbind(sig_genes_list, new_genes)
+  }
+  
+  library(dplyr)
+  # Only keep genes that occur in all comparisons - meaning n_comps times
+  sig_genes_list <- sig_genes_list %>% 
+    group_by(gene) %>%
+    dplyr::filter(n() == n_comps) %>%
+    ungroup()
+  
+  # Only keep genes where the direction is the same in all comparisons
+  sig_genes_list <- sig_genes_list %>% 
+    group_by(gene) %>%
+    dplyr::filter(n_distinct(direction) == 1) %>%
+    ungroup()
+  
+  #add column mean_log2fc
+  sig_genes_list <- sig_genes_list %>% group_by(gene) %>% mutate(mean_log2fc = mean(log2fc))
+  #add geom_mean_adj_pval
+  sig_genes_list <- sig_genes_list %>% group_by(gene) %>% mutate(geom_mean_adj_pval = exp(mean(log(pvalue))))
+  #keep only unique rows gene_name and grouping, but keep other rows as well
+  sig_genes_list <- sig_genes_list %>% distinct(gene, direction, .keep_all = TRUE)
+  
+  return(sig_genes_list)
+}
+
+# Usage
+df <- find_significant_genes(all_comparisons, grouping_5[[1]], grouping_5[[2]])
+print(df)
+```
+
+
+```{r}
+
+# List of all groupings
+all_groupings <- list(grouping_1, grouping_2, grouping_3, grouping_4, 
+                      grouping_5, grouping_6, grouping_7, grouping_8)
+
+# Function to process a single grouping
+process_grouping <- function(grouping, grouping_name) {
+  result <- find_significant_genes(all_comparisons, grouping[[1]], grouping[[2]])
+  if (nrow(result) > 0) {
+    result$grouping <- grouping_name
+    return(result)
+  } else {
+    return(data.frame(gene = character(0), direction = character(0), grouping = character(0)))
+  }
+}
+
+# Process all groupings
+results_list <- lapply(seq_along(all_groupings), function(i) {
+  process_grouping(all_groupings[[i]], paste0("grouping_", i))
+})
+
+# Combine all results into a single dataframe
+all_results <- do.call(rbind, results_list)
+
+write_csv(all_results, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/grouping_lineage_markers_2026_02_14.csv")
+write_csv(all_results, "/Users/k23030440/epitome_code/epitome/data/heatmap/v_0.02/atac_grouping_lineage_markers.csv")
+write.csv(all_results, "/Users/k23030440/epitome_code/epitome/data/markers/v_0.02/atac_grouping_lineage_markers.csv")
+
+
+all_results <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/grouping_lineage_markers_2026_02_14.csv")
+
+
+#keep obly sig
+all_results <- all_results[all_results$geom_mean_adj_pval<0.05,]
+#how many per grouping
+table(all_results$grouping, all_results$direction)
+
+for (i in 1:8) {
+  grouping_results <- all_results %>% dplyr::filter(grouping == paste0("grouping_", i))
+  cat("\nGrouping", i, "results:\n")
+  cat("Number of significant peaks:", nrow(grouping_results), "\n")
+}
+```
+
+
+```{r}
+
+library(BSgenome.Mmusculus.UCSC.mm10)   
+library(TFBSTools)
+library(JASPAR2020)
+library(motifmatchr)
+
+grouping1_up = all_results[all_results$grouping=="grouping_1",]
+grouping1_up = grouping1_up[grouping1_up$direction=="down",]
+rest = all_results[all_results$grouping!="grouping_1",]
+
+##############
+#Signac enrichment
+##############
+
+library(Signac)
+atac_assay <- CreateChromatinAssay(seurat_object[["RNA"]]$counts,sep = c(":", "-"),)
+
+atac_object <- seurat_object
+atac_object[["ATAC"]]<- atac_assay
+DefaultAssay(atac_object) <- "ATAC"
+atac_object[["RNA"]] <- NULL
+
+library(JASPAR2022)
+
+pfm <- getMatrixSet(
+  x = JASPAR2022,
+  opts = list(collection = "CORE", tax_group = 'vertebrates', all_versions = FALSE)
+)
+
+seqlevelsStyle(BSgenome.Mmusculus.UCSC.mm10) <- "UCSC"
+
+# add motif information
+atac_object <- AddMotifs(
+  object = atac_object,
+  genome = BSgenome.Mmusculus.UCSC.mm10,
+  pfm = pfm,
+  p.cutoff = 1e-05, w = 10
+)
+
+target_peaks <- all_results[all_results$grouping == "grouping_2" & 
+                              all_results$direction == "up", ]
+
+# Skip if no peaks found
+if(nrow(target_peaks) == 0) {
+  message(sprintf("No peaks found for %s (%s)", "grouping_1", "down"))
+  return(NULL)
+}
+
+#grouping1_up$gene change : to -
+target_peaks$gene <- gsub(":", "-", target_peaks$gene)
+
+all_target_peaks <- all_results
+all_target_peaks$gene <- gsub(":", "-", all_target_peaks$gene)
+
+#keep only target_peaks
+atac_object_subset = atac_object[rownames(atac_object) %in% all_target_peaks$gene]
+
+enriched.motifs <- FindMotifs(
+  object = atac_object_subset,
+  features = target_peaks$gene
+)
+
+```
+
+
+```{r}
+
+# Function to perform motif analysis for a specific grouping and direction
+perform_motif_analysis <- function(all_results, grouping_name, direction, output_dir) {
+  # Filter for specific grouping and direction
+  
+  target_peaks <- all_results[all_results$grouping == grouping_name & 
+                                all_results$direction == direction, ]
+  
+  # Skip if no peaks found
+  if(nrow(target_peaks) == 0) {
+    message(sprintf("No peaks found for %s (%s)", grouping_name, direction))
+    return(NULL)
+  }
+  #grouping1_up$gene change : to -
+  target_peaks$gene <- gsub(":", "-", target_peaks$gene)
+  
+  
+  
+  all_target_peaks <- all_results[all_results$grouping == grouping_name, ]
+  all_target_peaks$gene <- gsub(":", "-", all_target_peaks$gene)
+  #keep only target_peaks
+  atac_object_subset = atac_object[rownames(atac_object) %in% all_target_peaks$gene]
+  
+  #atac_object_ only keep peaks that start with chr
+  atac_object_ = atac_object[grep("^chr", rownames(atac_object)), ]
+  target_peaks$gene = target_peaks$gene[grep("^chr", target_peaks$gene)]
+  
+  enriched.motifs <- FindMotifs(
+    object = atac_object_,
+    features = target_peaks$gene,
+    background = 100000
+  )
+  enriched.motifs
+  output_file = file.path(output_dir, sprintf("enrichment_results_%s_%s.rds", grouping_name, direction))
+    # Save results
+  saveRDS(enriched.motifs, output_file)
+  write.csv(
+    enriched.motifs,
+        file.path(output_dir, 
+                  sprintf("enrichment_results_%s_%s.csv", 
+                          grouping_name, 
+                          direction)),
+        row.names = FALSE
+      )
+  
+  
+  write.csv(
+    enriched.motifs,
+    file.path("/Users/k23030440/epitome_code/epitome/data/accessibility/v_0.02/", 
+              sprintf("enrichment_results_%s_%s.csv", 
+                      grouping_name, 
+                      direction)),
+    row.names = FALSE
+  )
+  
+    
+  return(enriched.motifs)
+}
+
+# Create output directory
+output_dir <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/motif_analysis_results"
+dir.create(output_dir, showWarnings = FALSE)
+
+# Get unique groupings
+groupings <- unique(all_results$grouping)
+directions <- c("up", "down")
+
+# Initialize list to store all results
+all_enrichment_results <- list()
+
+# Loop through each grouping and direction
+for(grouping in groupings) {
+  for(direction in directions) {
+    message(sprintf("Processing %s (%s)...", grouping, direction))
+    
+    result <- perform_motif_analysis(all_results, 
+                                     grouping, 
+                                     direction, 
+                                     output_dir)
+    
+    if(!is.null(result)) {
+      all_enrichment_results[[paste(grouping, direction, sep="_")]] <- result
+    }
+  }
+}
+
+# Save complete results object
+saveRDS(all_enrichment_results, file.path(output_dir, "all_motif_results.rds"))
+
+# Save the motif matrix
+matrix = atac_object@assays$ATAC@motifs@data
+write.table(rownames(matrix),
+            "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/motif_matrix_rows.txt",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+write.table(rownames(matrix),
+            "/Users/k23030440/epitome_code/epitome/data/heatmap/v_0.02/motif_matrix_rows.txt",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+
+write.table(colnames(matrix),
+            "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/motif_matrix_cols.txt",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(colnames(matrix),
+            "/Users/k23030440/epitome_code/epitome/data/heatmap/v_0.02/motif_matrix_cols.txt",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+library(Matrix)
+writeMM(matrix, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/motif_matrix.mtx")
+writeMM(matrix, "/Users/k23030440/epitome_code/epitome/data/heatmap/v_0.02/motif_matrix.mtx")
+#
+```
+
+
+```{r}
+# Preprocessing script to normalize and save data
+library(edgeR)
+
+# Apply normalization
+normalize_expression <- function(expression_table_original, dge_original) {
+  norm_factors <- dge_original$samples$norm.factors
+  lib_sizes <- dge_original$samples$lib.size
+  
+  eff_lib_sizes <- norm_factors * lib_sizes
+  
+  normalized_expression <- sweep(expression_table_original, 2, eff_lib_sizes, FUN = "/")
+  
+  # Multiply back by 10^6
+  normalized_expression <- t(t(normalized_expression) * 10^6)
+  
+  return(normalized_expression)
+}
+
+# Normalize the data
+normalized_expression <- normalize_expression(expression_table, dge)
+
+# Save the normalized data and metadata
+save(normalized_expression, meta_data, 
+     file = "/Users/k23030440/epitome_code/epitome/data/accessibility/atac_normalized_data.RData")
+
+
+#save meta_data as well
+write.csv(meta_data, "/Users/k23030440/epitome_code/epitome/data/accessibility/v_0.02/atac_meta_data.csv")
+
+
+write.table(rownames(normalized_expression),
+            "/Users/k23030440/epitome_code/epitome/data/accessibility/v_0.02/accessibility_features.txt", 
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+write.table(colnames(normalized_expression),
+            "/Users/k23030440/epitome_code/epitome/data/accessibility/v_0.02/accessibility_columns.txt", 
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+```
+
+
+```{r}
+
+library(Matrix)
+normalized_expression <- as(normalized_expression, "CsparseMatrix")
+writeMM(normalized_expression, "/Users/k23030440/epitome_code/epitome/data/accessibility/v_0.02/normalized_data.mtx")
+
+# Create summary table
+summary_table <- data.frame()
+
+for(name in names(all_enrichment_results)) {
+  print(name)
+  result <- all_enrichment_results[[name]]
+    # Get top 10 motifs
+    top_motifs <- head(result, 10)
+    top_motifs$analysis <- name
+    summary_table <- rbind(summary_table, top_motifs)}
+
+#also make a csv for all results
+all_results_df = data.frame()
+for(name in names(all_enrichment_results)) {
+  print(name)
+  result <- all_enrichment_results[[name]]
+  result$analysis <- name
+  all_results_df <- rbind(all_results_df, result)
+}
+
+# Save summary table
+write.csv(summary_table, 
+          file.path(output_dir, "motif_analysis_summary.csv"), 
+          row.names = FALSE)
+
+write.csv(all_results_df,
+          file.path(output_dir, "all_motif_results.csv"),
+          row.names = FALSE)
+```
+
+
+```{r}
+normalized_expression <- normalize_expression(expression_table, dge)
+#remove top 20 most highly expressed genes
+keep_genes <- rownames(normalized_expression)[order(apply(normalized_expression, 1, sum), decreasing = TRUE)][-(1:20)]
+#remove top 10
+normalized_expression <- normalized_expression[keep_genes, ]
+#keep genes with at least 2000 counts
+keep_genes <- rownames(normalized_expression)[apply(normalized_expression, 1, sum) > 2000]
+normalized_expression <- normalized_expression[keep_genes, ]
+#keep genes with top 2000 highest coefficients of variation
+cv <- apply(normalized_expression, 1, sd) / apply(normalized_expression, 1, mean)
+#remove genes with NA cv
+cv <- cv[!is.na(cv)]
+top_genes <- names(sort(cv, decreasing = TRUE)[1:10000])
+normalized_expression <- normalized_expression[top_genes, ]
+
+# Load required libraries
+library(ggplot2)
+library(dplyr)
+
+# Perform PCA
+pca_data <- prcomp(t(log1p(normalized_expression)), center = TRUE, scale. = TRUE)
+
+# Calculate variance explained
+var_explained <- pca_data$sdev^2 / sum(pca_data$sdev^2) * 100
+
+# Create dataframe for plotting
+plot_data <- data.frame(
+  PC1 = pca_data$x[,1],
+  PC2 = pca_data$x[,2],
+  Assignment = meta_data$assignments,
+  ExpType = meta_data$exptype
+)
+
+# Create plot by Assignment
+p1 <- ggplot(plot_data, aes(x = PC1, y = PC2, fill = Assignment)) +
+  geom_point(size =3, alpha = 1, shape = 21, stroke = 0.5, color = "black") +
+  theme_minimal() +
+  labs(
+    x = sprintf("PC1 (%.1f%%)", var_explained[1]),
+    y = sprintf("PC2 (%.1f%%)", var_explained[2]),
+    title = "PCA by Cell Assignment"
+  ) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "right"
+  )
+
+# Create plot by ExpType
+p2 <- ggplot(plot_data, aes(x = PC1, y = PC2, fill = ExpType)) +
+  geom_point(size = 3, alpha = 1, shape = 21, stroke = 0.5, color = "black") +
+  theme_minimal() +
+  labs(
+    x = sprintf("PC1 (%.1f%%)", var_explained[1]),
+    y = sprintf("PC2 (%.1f%%)", var_explained[2]),
+    title = "PCA by Experiment Type"
+  ) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "right"
+  )
+
+# Display plots
+print(p1)
+print(p2)
+
+#save as png
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_PCA_by_assignment.png", p1, width = 6, height = 6, dpi = 300)
+#and svg
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_PCA_by_assignment.svg", p1, width = 6, height = 6)
+
+
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_PCA_by_assay.png", p2, width = 6, height = 6, dpi = 300)
+#and svg
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_PCA_by_assay.svg", p2, width = 6, height = 6)
+
+
+```
+
+
+
+```{r}
+plot_data <- data.frame(
+  PC1 = pca_data$x[,1],
+  PC2 = pca_data$x[,2],
+  Assignment = meta_data$assignments,
+  Sex = meta_data$Comp_sex
+)
+
+# Create plot by Assignment
+p1 <- ggplot(plot_data, aes(x = PC1, y = PC2, fill = Assignment)) +
+  geom_point(size =3, alpha = 1, shape = 21, stroke = 0.5, color = "black") +
+  theme_minimal() +
+  labs(
+    x = sprintf("PC1 (%.1f%%)", var_explained[1]),
+    y = sprintf("PC2 (%.1f%%)", var_explained[2]),
+    title = "PCA by Sex"
+  ) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "right"
+  )
+
+# Create plot by ExpType
+p2 <- ggplot(plot_data, aes(x = PC1, y = PC2, fill = Sex)) +
+  geom_point(size =3, alpha = 1, shape = 21, stroke = 0.5, color = "black") +
+  theme_minimal() +
+  labs(
+    x = sprintf("PC1 (%.1f%%)", var_explained[1]),
+    y = sprintf("PC2 (%.1f%%)", var_explained[2]),
+    title = "PCA by Sex"
+  ) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "right"
+  )
+
+
+# Display plots
+print(p1)
+print(p2)
+
+#ggsave as png
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_PCA_by_sex.png", p2, width = 6, height = 6, dpi = 300)
+#and svg
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_PCA_by_sex.svg", p2, width = 6, height = 6)
+
+```
+
+```{r}
+# Extract first 20 PCs
+pcs_for_umap <- pca_data$x[,1:10]
+
+# Run UMAP
+#
+library(umap)
+umap_result <- umap(pcs_for_umap)
+
+# Create plot data
+umap_plot_data <- data.frame(
+  UMAP1 = umap_result$layout[,1],
+  UMAP2 = umap_result$layout[,2],
+  assignments = meta_data$assignments,
+  sex = meta_data$Comp_sex
+)
+
+# Plot
+p1<- ggplot(umap_plot_data, aes(x = UMAP1, y = UMAP2, fill = assignments)) +
+  geom_point(size =3, alpha = 1, shape = 21, stroke = 0.5, color = "black") +
+  theme_minimal() +
+  labs(title = "UMAP Visualization") +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "right"
+  )
+
+
+
+# Create plot by ExpType
+p2<- ggplot(umap_plot_data, aes(x = UMAP1, y = UMAP2, fill = sex)) +
+  geom_point(size =3, alpha = 1, shape = 21, stroke = 0.5, color = "black") +
+  theme_minimal() +
+  labs(title = "UMAP Visualization") +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "right"
+  )
+
+
+# Display plots
+print(p1)
+print(p2)
+
+#ggsave as png
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_PCA_by_assignment.png", p1, width = 6, height = 6, dpi = 300)
+#and svg
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_PCA_by_assignment.svg", p1, width = 6, height = 6)
+
+
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_PCA_by_sex.png", p1, width = 6, height = 6, dpi = 300)
+#and svg
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_PCA_by_sex.svg", p1, width = 6, height = 6)
+
+
+
+
+
+
+
+
+```
+
+Chromvar
+
+```{r}
+#Chromvar
+rm(seurat_object)
+rm(expression_table)
+rm(atac_object_subset)
+rm(atac_assay)
+
+
+
+#save atac_object rds
+saveRDS(atac_object, 
+        "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/atac_object_2026_02_14.rds")
+
+atac_object <- readRDS(
+  "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/atac_object_2026_02_14.rds"
+)
+```
+
+
+```{r}
+
+meta_data = atac_object@meta.data
+print(colSums(atac_object@assays$ATAC$counts))
+
+
+print(table(meta_data$SRA_ID))
+
+atac_object<- RunChromVAR(
+object = atac_object,
+genome = BSgenome.Mmusculus.UCSC.mm10)
+```
+
+
+```{r}
+
+motifs = rownames(atac_object[["chromvar"]])
+new_rownames = c()
+for (motif in motifs) {
+  #in atac_object@assays$ATAC@motifs@motif.names find the entry correspondign under motif
+  motif_name = atac_object@assays$ATAC@motifs@motif.names[motif]
+  new_rownames = c(new_rownames, paste0(motif, "_", motif_name))
+}
+
+matrix_vals = as.matrix(atac_object[["chromvar"]]@data)
+matrix_vals = atac_object[["chromvar"]]@data
+
+write.table(new_rownames, 
+            "/Users/k23030440/epitome_code/epitome/data/chromvar/v_0.02/chromvar_features.txt", 
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+write.table(colnames(matrix_vals),
+            "/Users/k23030440/epitome_code/epitome/data/chromvar/v_0.02/chromvar_columns.txt", 
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+library(Matrix)
+matrix_vals <- as(as.matrix(atac_object[["chromvar"]]@data), "dgCMatrix")
+writeMM(matrix_vals, "/Users/k23030440/epitome_code/epitome/data/chromvar/v_0.02/normalized_data.mtx")
+
+
+#save meta_data as well
+write_csv(atac_object@meta.data, "/Users/k23030440/epitome_code/epitome/data/chromvar/v_0.02/meta_data.csv")
+
+
+```
+extracting motif locations for epitome
+
+```{r}
+
+#motif_names = "/Users/k23030440/epitome_code/epitome/data/chromvar/v_0.02/chromvar_features.txt"
+motif_names = read.table("/Users/k23030440/epitome_code/epitome/data/chromvar/v_0.02/chromvar_features.txt", header = FALSE, stringsAsFactors = FALSE)
+motif_names = motif_names$V1
+#choose values before _
+motifs = sub("_.*", "", motif_names)
+motifs
+#add col
+for (i in 1:length(atac_object[["ATAC"]]@motifs@positions)) {
+  if (i %% 100 == 0) {
+    print(i)
+  }
+  if (i == 1) {
+    final_df = as.data.frame(atac_object[["ATAC"]]@motifs@positions[i])
+    #turn to df
+    final_df = as.data.frame(final_df)
+    motif_name = unname(atac_object@assays$ATAC@motifs@motif.names[i])[[1]]
+    motif = motifs[i]
+    new_motif_name = paste0(motif, "_", motif_name)
+    #add to col "motif"
+    final_df$motif = new_motif_name
+  }
+  
+  df = as.data.frame(atac_object[["ATAC"]]@motifs@positions[i])
+  #turn to df
+  df = as.data.frame(df)
+  motif_name = unname(atac_object@assays$ATAC@motifs@motif.names[i])[[1]]
+  motif = motifs[i]
+  new_motif_name = paste0(motif, "_", motif_name)
+  #add to col "motif"
+  df$motif = new_motif_name
+  
+  final_df = rbind(final_df, df)
+}
+
+final_df <- final_df[!duplicated(final_df[, c("start","seqnames", "motif")]), ]
+
+#save final_df
+
+write.csv(final_df, "/Users/k23030440/epitome_code/epitome/data/accessibility/v_0.02/atac_motif_data.csv")
+
+```
+
+
+```{r}
+
+# Load required libraries
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(org.Mm.eg.db)
+library(GenomicFeatures)
+
+# Load TxDb object
+txdb <- TxDb.Mmusculus.UCSC.mm10.knownGene
+
+### Process Exons ###
+# Extract exons grouped by gene
+exons_by_gene <- exonsBy(txdb, by = "gene")
+# Unlist to create a flat GRanges object for exons
+exons <- unlist(exons_by_gene)
+
+# Add gene IDs as metadata
+exons$gene_id <- names(exons)
+# Map gene IDs to gene names
+exon_gene_ids <- mapIds(org.Mm.eg.db, 
+                        keys = exons$gene_id, 
+                        column = "SYMBOL", 
+                        keytype = "ENTREZID", 
+                        multiVals = "first")
+mcols(exons)$gene_name <- exon_gene_ids
+
+# Convert to a data frame without using gene IDs as row names
+exon_df <- as.data.frame(exons, row.names = NULL)
+exon_df$feature_type <- "exon"
+
+### Process Introns ###
+# Extract introns grouped by transcript
+introns_by_gene <- intronsByTranscript(txdb)
+# Unlist to create a flat GRanges object for introns
+introns <- unlist(introns_by_gene)
+# Map transcript IDs to gene names
+intron_gene_ids <- mapIds(org.Mm.eg.db, 
+                          keys = names(introns), 
+                          column = "SYMBOL", 
+                          keytype = "ENTREZID", 
+                          multiVals = "first")
+mcols(introns)$gene_name <- intron_gene_ids
+
+# Convert to a data frame without using transcript IDs as row names
+intron_df <- as.data.frame(introns, row.names = NULL)
+intron_df$feature_type <- "intron"
+
+### Combine Exons and Introns ###
+# Add unique identifiers if needed
+exon_df$feature_id <- paste0("exon_", seq_len(nrow(exon_df)))
+intron_df$feature_id <- paste0("intron_", seq_len(nrow(intron_df)))
+
+# Combine exon and intron data frames
+#keep thsese from exon_df seqnames   start     end width strand gene_name feature_type feature_id
+exon_df <- subset(exon_df, select = c("seqnames", "start", "end", "width", "strand", "gene_name", "feature_type", "feature_id"))
+annotation_df <- rbind(exon_df)
+
+#save annotation_df to /Users/k23030440/epitome_code/epitome/accessibility/annotation.csv
+write.csv(annotation_df, "/Users/k23030440/epitome_code/epitome/data/accessibility/v_0.02/annotation.csv", row.names = FALSE)
+
+
+
+#find Sox2 in annotation_df
+sox2 <- subset(annotation_df, gene_name == "Sox2")
+
+sox2
+
+```
+
+# Cell typing peaks
+
+```{r}
+# Main loop
+all_markers <- list()
+#initialise empty df 
+all_markers_df <- data.frame()
+celltypes <- unique(meta_data$cell_type)
+for (celltype in celltypes) {
+  other_celltypes <- setdiff(celltypes, celltype)
+  significant_genes <- compare_celltype(celltype, other_celltypes, design, fit, 0)
+  
+  # Find genes significant in all but at most one comparison
+  min_required <- length(other_celltypes)
+  markers <- significant_genes %>% group_by(gene) %>% filter(n() >= min_required) 
+  #only keep if log2fc is ALWAYS > 2
+  markers <- markers %>% group_by(gene) %>% filter(all(logFC > 1)) %>% summarise(log2fc = mean(logFC), pval = exp(mean(log(adj.P.Val))), avg_expr = mean(AveExpr))
+  #order by pval
+  markers <- markers %>% arrange(pval)
+  #add col about cell types
+  markers$celltype <- celltype
+  
+  
+  #add markers to all_markers_df
+  all_markers_df <- rbind(all_markers_df, markers)
+  
+  #remove dups
+  markers <- unique(markers%>% pull(gene))
+  all_markers[[celltype]] <- markers
+}
+
+
+all_markers_df <- all_markers_df %>% arrange(pval)
+
+#save it to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/cell_typing_markers_atac.csv
+write.csv(all_markers_df, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/cell_typing_markers_atac_2026_02_14.csv")
+write.csv(all_markers_df, "/Users/k23030440/epitome_code/epitome/data/markers/v_0.02/cell_typing_markers_atac_2026_02_14.csv")
+
+#print top 5 marker for each cell type 
+all_markers_df <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/cell_typing_markers_atac_2026_02_14.csv")
+coefs_table <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/coef_2026_02_14.csv")
+rownames(coefs_table) <- coefs_table$X
+#remove first col
+coefs_table <- coefs_table[, -1]
+#for each col name remove assignments in coefs_table
+colnames(coefs_table) <- gsub("assignments", "", colnames(coefs_table))
+#add a new col to all_markers_df called avg_exp, get this value by finding the cell_type as a column in coefs_table and then accessing the gene (row_index) and get value
+all_markers_df$avg_exp <- NA
+for (i in 1:nrow(all_markers_df)) {
+  gene <- all_markers_df$gene[i]
+  celltype <- all_markers_df$celltype[i]
+  all_markers_df$avg_exp[i] <- coefs_table[gene, celltype]
+}
+
+#keep those with at least 5 > avg_exp
+all_markers_df <- all_markers_df %>% filter(avg_exp > 3)
+
+celltypes <- unique(all_markers_df$celltype)
+
+for (ct in celltypes) {
+  print(all_markers_df %>% dplyr::filter(celltype == ct) %>% head(5))
+}
+
+# Create final markers dataframe, handling empty marker lists
+markers_df <- all_markers_df %>% dplyr::select(gene, celltype, avg_exp, pval) %>% arrange(celltype, pval)
+
+# Remove rows with NA genes
+markers_df <- markers_df %>% filter(!is.na(gene))
+```

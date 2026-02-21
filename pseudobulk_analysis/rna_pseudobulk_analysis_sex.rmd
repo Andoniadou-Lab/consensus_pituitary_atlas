@@ -1,0 +1,649 @@
+---
+title: "Generating variance partition plots"
+author: "Bence Kover"
+date: "2026-01-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Loading dependencies
+
+```{r}
+library(DESeq2)
+library(Seurat)
+library(tidyverse)
+library(reticulate)
+library(variancePartition)
+
+```
+
+
+
+```{r}
+
+version="v_0.02"
+# Specify the path to the .h5ad file
+h5ad_file <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/pdatas_2026_02_14.h5ad"
+
+# Read the .h5ad file using reticulate
+anndata <- reticulate::import("anndata")
+py_index <- reticulate::import("pandas")$Index
+adata <- anndata$read_h5ad(h5ad_file)
+
+# Convert the data to Seurat object
+# Seurat expects the count matrix to be in column-major order (genes x cells)
+counts <- t(adata$X) # Transpose to convert to column-major order
+meta_data <- as.data.frame(adata$obs) # Convert obs to a data frame
+vars <- adata$var
+vars <-  py_to_r(adata$var_names$to_list())
+
+# Create the Seurat object
+seurat_object <- CreateSeuratObject(counts = counts, meta.data = meta_data)
+#print unique Author
+rownames(seurat_object) <- vars
+seurat_object$assignments <- seurat_object$new_cell_type
+
+root = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/"
+figs_folder = paste(root,"Figures/",sep="")
+
+meta_data = seurat_object@meta.data
+print(length(unique(meta_data$Author)))
+print(length(unique(meta_data$SRA_ID)))
+
+#print sum psbulk_n_cells
+print(sum(meta_data$psbulk_n_cells))
+expression_table = seurat_object@assays$RNA$counts
+unique(meta_data$SRA_ID)
+```
+
+
+
+
+
+```{r}
+
+###################################################
+### Now with Limma-voom below
+library(limma)
+library(edgeR)
+# Ensure valid column names for assignments and exptype
+meta_data$assignments <- make.names(meta_data$assignments)
+meta_data$exptype <- make.names(meta_data$Modality)
+
+
+# Remove any remaining problematic characters
+meta_data$assignments <- gsub("[^A-Za-z0-9_]", "", meta_data$assignments)
+meta_data$exptype <- gsub("[^A-Za-z0-9_]", "", meta_data$exptype)
+
+
+#remove where assignment is Blood
+expression_table <- expression_table[,meta_data$assignments != "Erythrocytes"]
+meta_data <- meta_data[meta_data$assignments != "Erythrocytes",]
+
+
+meta_data$Age_numeric <- as.numeric(as.character(meta_data$Age_numeric))
+meta_data$Comp<- as.numeric(as.character(meta_data$Comp_sex))
+
+#keep only samples between 20 and 150
+expression_table <- expression_table[,meta_data$Age_numeric <= 150]
+meta_data <- meta_data[meta_data$Age_numeric <= 150,]
+expression_table <- expression_table[,meta_data$Age_numeric > 10]
+meta_data <- meta_data[meta_data$Age_numeric > 10,]
+
+
+meta_data$exptype[meta_data$`10X version` == "PARSE_WT_MegaV2"] <- "parse"
+meta_data$exptype[meta_data$`10X version` == "Parse_WT"] <- "parse"
+
+#remove those that are parse
+expression_table <- expression_table[,meta_data$exptype != "parse"]
+meta_data <- meta_data[meta_data$exptype != "parse",]
+
+expression_table <- expression_table[,meta_data$exptype != "multi_rna"]
+meta_data <- meta_data[meta_data$exptype != "multi_rna",]
+
+table(meta_data$Modality,meta_data$Comp_sex)
+
+# Ensure valid column names for assignments and exptype
+meta_data$assignments <- make.names(meta_data$assignments)
+meta_data$exptype <- make.names(meta_data$exptype)
+meta_data$Sex <- make.names(meta_data$Comp)
+
+
+# Remove any remaining problematic characters
+meta_data$assignments <- gsub("[^A-Za-z0-9_]", "", meta_data$assignments)
+meta_data$exptype <- gsub("[^A-Za-z0-9_]", "", meta_data$exptype)
+meta_data$Sex <- gsub("[^A-Za-z0-9_]", "", meta_data$Sex)
+
+
+#order meta_data based on exptype
+#reorder expression_table based on meta_data index
+meta_data$sample = colnames(expression_table)
+
+
+expression_table <- expression_table[,order(meta_data$exptype)]
+meta_data <- meta_data[order(meta_data$exptype),]
+
+
+#print all values
+print(meta_data$exptype)
+#add a new column called index
+meta_data$index <- colnames(expression_table)
+
+```
+
+
+
+
+
+```{r}
+
+expression_table <- sweep(expression_table, 2, meta_data$psbulk_n_cells, "/")
+
+expression_table <- expression_table * median(meta_data$psbulk_n_cells)
+
+exp_table_sc = expression_table[,meta_data$exptype == "sc"]
+meta_data_sc = meta_data[meta_data$exptype == "sc",]
+
+exp_table_sn = expression_table[,meta_data$exptype == "sn"]
+meta_data_sn = meta_data[meta_data$exptype == "sn",]
+
+#exp_table_multi = expression_table[,meta_data$exptype == "multi_rna"]
+#meta_data_multi = meta_data[meta_data$exptype == "multi_rna",]
+
+
+dge = DGEList(counts = expression_table, group = meta_data$assignments)
+# Prepare the DGEList object for limma voom
+dge_sc <- DGEList(counts = exp_table_sc, group = meta_data_sc$assignments)
+dge_sn <- DGEList(counts = exp_table_sn, group = meta_data_sn$assignments)
+#dge_multi <- DGEList(counts = exp_table_multi, group = meta_data_multi$assignments)
+
+library(limma)
+library(edgeR)
+design <- model.matrix(~0 + assignments +  assignments:Sex, data = meta_data)
+colnames(design) <- make.names(colnames(design))
+keep_genes <- filterByExpr(dge, design, min.total.count = 300,min.prop= 0.2)
+#look at Gpr101
+keep_genes[rownames(dge) == "Gpr101"]
+print(sum(keep_genes))
+dge <- dge[keep_genes, ]
+dim(dge)
+gene_names <- rownames(dge)
+dge_sc <- dge_sc[gene_names,]
+dge_sn <- dge_sn[gene_names,]
+#dge_multi <- dge_multi[gene_names,]
+
+#norm
+dge_sc <- calcNormFactors(dge_sc, method = "TMM")
+dge_sn <- calcNormFactors(dge_sn, method = "TMM")
+#dge_multi <- calcNormFactors(dge_multi, method = "TMM")
+
+
+
+dge$samples = rbind(#dge_multi$samples,
+                    dge_sc$samples,dge_sn$samples)
+
+
+meta_data = rbind(#meta_data_multi,
+                  meta_data_sc,
+                  meta_data_sn
+                  )
+
+#set ref level of Sex to X0
+meta_data$Sex <- relevel(factor(meta_data$Sex), ref = "X0")
+#merge assignment and sex to assignment_sex
+meta_data$assignments_sex = paste(meta_data$assignments, meta_data$Sex, sep="_")
+
+# Create the design matrix
+design <- model.matrix(~0 + assignments + assignments_sex, data = meta_data)
+#from design remove anything with _X0
+colnames(design) <- make.names(colnames(design))
+
+fit <- voom(dge, design, plot=TRUE)
+```
+
+
+```{r}
+
+L <- makeContrastsDream(form, meta_data, contrasts = c(
+  Corticotrophs_sex = "assignmentsCorticotrophs:SexX1 - 0",
+  Endothelial_cells_sex = "assignmentsEndothelial_cells:SexX1 - 0",
+  Gonadotrophs_sex ="assignmentsGonadotrophs:SexX1 - 0",
+  Immune_cells_sex = "assignmentsImmune_cells:SexX1 - 0",
+  Lactotrophs_sex = "assignmentsLactotrophs:SexX1 - 0",
+  Melanotrophs_sex = "assignmentsMelanotrophs:SexX1 - 0",
+  Mesenchymal_cells_sex = "assignmentsMesenchymal_cells:SexX1 - 0",
+  Pituicytes_sex = "assignmentsPituicytes:SexX1 - 0",
+  Somatotrophs_sex = "assignmentsSomatotrophs:SexX1 - 0",
+  Stem_cells_sex =  "assignmentsStem_cells:SexX1 - 0",
+  Thyrotrophs_sex = "assignmentsThyrotrophs:SexX1 - 0"))
+  
+                                                       
+                                                       
+
+# show contrasts matrix
+L
+
+# Plot to visualize contrasts matrix
+plotContrasts(L)
+```
+
+
+```{r}
+param <- SnowParam(4, "SOCK", progressbar = TRUE)
+# The variable to be tested must be a fixed effect
+form <- ~0 + assignments + assignments:Sex + (1 | Modality)
+# estimate weights using linear mixed model of dream
+vobjDream <- voomWithDreamWeights(dge, form, meta_data, BPPARAM = param)
+
+fit <- dream(vobjDream, form, meta_data, L=L)
+fit <- eBayes(fit)
+
+```
+```{r}
+fit_old = fit
+
+```
+
+
+
+
+```{r}
+# Get top differentially expressed genes
+top_genes <- topTable(diff_expression, coef = "Stem_cells_sex",
+                      number = Inf,lfc=1, adjust.method="BH")
+top_genes$genes <- rownames(top_genes)
+#how many sig
+print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
+
+```
+
+```{r}
+
+cpdb <- read_csv("/Users/k23030440/epitome_code/epitome/data/gene_group_annotation/v_0.01//cpdb.csv")
+#keep where category is TF and keep gene
+tf_list <- cpdb %>% filter(category == "TF") %>% select(gene) %>% distinct()
+tf_list <- tf_list$gene
+tf_list
+
+print("Up TFs with male")
+#rank it by adj.P.val
+print(top_genes %>% filter(genes %in% tf_list & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+print("Down TFs with female")
+print(top_genes %>% filter(genes %in% tf_list & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+
+library(clipr)
+# Write the genes to clipboard, one per line
+up_genes <- top_genes %>% filter(logFC > 0 & adj.P.Val < 0.05)
+clipr::write_clip(paste(up_genes$gene, collapse = "\n"))
+down_genes <- top_genes %>% filter(logFC < 0 & adj.P.Val < 0.05)
+clipr::write_clip(paste(down_genes$gene, collapse = "\n"))
+background_genes <- rownames(dge)
+clipr::write_clip(paste(background_genes, collapse = "\n"))
+
+
+#save these to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_up_genes.csv
+write.csv(up_genes, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_sexually_dimorphic_up_genes.csv")
+write.csv(down_genes, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_sexually_dimorphic_down_genes.csv")
+
+
+
+```
+
+
+```{r}
+
+# Initialize a list to store results
+sex_specific_genes <- list()
+cell_types <- unique(meta_data$assignments)
+
+for (cell_type in cell_types) {
+  # Create contrast for this cell type's sex effect
+  coef =  paste0(cell_type, "_sex")
+  # Get results
+  results <- topTable(fit, coef=coef,number=Inf,adjust.method="BH", lfc=1)
+  
+  #filter out this where Avg_exp is 0
+  results <- results[results$AveExpr > 0,]
+  
+  # Store significant genes (positive logFC = male, negative = female)
+  male_genes <- rownames(results[results$adj.P.Val < 0.05 & results$logFC > 0,])
+  female_genes <- rownames(results[results$adj.P.Val < 0.05 & results$logFC < 0,])
+  
+  sex_specific_genes[[cell_type]] <- list(
+    male = male_genes,
+    female = female_genes
+  )
+  
+  cat(sprintf("%s: %d male-specific, %d female-specific genes\n", 
+              cell_type, length(male_genes), length(female_genes)))
+}
+
+```
+
+```{r}
+
+# Create dataframe for plotting
+plot_data <- data.frame(
+  cell_type = names(sex_specific_genes),
+  male_genes = sapply(sex_specific_genes, function(x) length(x$male)),
+  female_genes = sapply(sex_specific_genes, function(x) length(x$female))
+)
+
+# Reshape the data for plotting
+plot_data_long <- rbind(
+  data.frame(
+    cell_type = plot_data$cell_type,
+    count = -plot_data$female_genes,  # Negative for female to show on left
+    sex = "Female",
+    label = plot_data$female_genes    # Positive label
+  ),
+  data.frame(
+    cell_type = plot_data$cell_type,
+    count = plot_data$male_genes,
+    sex = "Male",
+    label = plot_data$male_genes
+  )
+)
+
+# Create the plot
+#where the fill is =, make it ""
+plot_data_long$label[plot_data_long$label == 0] <- ""
+plot_data_long$label <- ifelse(plot_data_long$sex == "Male", 
+                               paste0("   ", plot_data_long$label),
+                               plot_data_long$label)
+
+#remove Posterior_pit
+plot_data_long <- plot_data_long[plot_data_long$cell_type != "Posterior_pit",]
+plot_data_long$count <- as.numeric(plot_data_long$count)
+# Ensure count is numeric
+plot_data_long$count <- as.numeric(plot_data_long$count)
+
+# Precompute vjust for each row
+plot_data_long$vjust <- ifelse(plot_data_long$count > 0, 0.6, -0.6)
+library(dplyr)
+
+# Ensure count is numeric
+plot_data_long$count <- as.numeric(plot_data_long$count)
+library(dplyr)
+
+# Calculate total differentially expressed genes per cell type and reorder
+plot_data_long <- plot_data_long %>%
+  group_by(cell_type) %>%
+  mutate(total_diff_exp = sum(abs(count))) %>% # Total absolute differentially expressed genes
+  ungroup() %>%
+  arrange(desc(total_diff_exp)) %>%            # Order by total genes
+  mutate(cell_type = factor(cell_type, levels = unique(cell_type))) # Maintain order
+
+# Add a column for fixed label positions
+plot_data_long <- plot_data_long %>%
+  mutate(label_position = ifelse(count > 0, 400, -400)) # Labels at fixed positions
+
+# Plot
+plt = ggplot(plot_data_long, aes(x = cell_type, y = count, fill = sex)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(aes(label = label, y = label_position), # Use fixed label positions
+            color = "black",
+            size = 5) +
+  scale_fill_manual(values = c("Female" = "#FFA500", "Male" = "#63B3ED")) +
+  scale_y_continuous(
+    labels = abs,  # Show absolute values on axis
+    limits = c(-max(abs(plot_data_long$count)) * 1.2, max(abs(plot_data_long$count)) * 1.2) # Symmetric axis
+  ) +
+  coord_flip() +
+  labs(
+    title = "Sex-biased Genes Across Cell Types",
+    x = "Cell Type",
+    y = "Number of Sex-biased Genes",
+    fill = ""
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 16),
+    legend.position = "top",
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    legend.text = element_text(size = 16),
+    #y tick smaller
+    axis.text.y = element_text(size = 14)
+  )
+
+plt
+# Save the plot as PNG and SVG
+stem_sex_spec = sex_specific_genes$Stem_cells$female
+
+
+#save plt as png and svg to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1
+fold = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/"
+ggsave(plt, filename = paste0(fold,"sex_biased_genes.png"), width = 6, height = 5.5, dpi = 300)
+ggsave(plt, filename = paste0(fold,"sex_biased_genes.svg"), width = 6, height = 5.5, dpi = 300)
+
+plt
+
+```
+
+
+```{r}
+df <- data.frame()
+df_raw <- data.frame()
+cell_types <- unique(meta_data$assignments)
+
+for (cell_type in cell_types) {
+  # Create contrast for this cell type's sex effect
+  coef = paste0(cell_type, "_sex")
+  # Get results
+  results <- topTable(fit, coef=coef, number=Inf,adjust.method="BH")
+  top_genes <- results
+  top_genes$cell_type <- gsub("assignments", "", gsub(".SexX1", "", cell_type))
+  top_genes$gene <- rownames(top_genes)
+  
+  #for those where log2fc <0 say female
+  top_genes$sex <- ifelse(top_genes$logFC > 0, "male","female")
+  top_genes_filtered <- top_genes[top_genes$adj.P.Val < 0.05,]
+  
+  df = rbind(df, top_genes_filtered)
+  df_raw = rbind(df_raw, top_genes)
+  
+}
+  
+#add to df a column called "occurs" which is the number of cell types the gene is differentially expressed in
+df <- df %>%
+  group_by(gene) %>%
+  summarize(occurs = n_distinct(cell_type)) %>%
+  left_join(df, by = "gene")
+
+df
+```
+
+
+```{r}
+
+#write
+write.csv(df,"/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes.csv")
+#only save those with abs log2fc > 1
+df_final <- df %>% filter(abs(logFC) > 1)
+df_final  <- df_final  %>%
+  select(-occurs)
+
+df_final <- df_final  %>%
+  group_by(gene) %>%
+  summarize(occurs = n_distinct(cell_type)) %>%
+  left_join(df_final , by = "gene")
+
+df_final 
+write.csv(df_final,"/Users/k23030440/epitome_code/epitome/data/sex_dimorphism/v_0.02/sexually_dimorphic_genes.csv")
+
+write.csv(df_raw,"/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes_raw.csv")
+
+```
+
+
+```{r}
+
+df_common_female <- df %>%
+  filter(sex == "female") %>%
+  group_by(gene) %>%
+  summarize(n_cell_types = n_distinct(cell_type)) %>%
+  filter(n_cell_types >= 3)
+
+# Same for males
+df_common_male <- df %>%
+  filter(sex == "male") %>%
+  group_by(gene) %>%
+  summarize(n_cell_types = n_distinct(cell_type)) %>%
+  filter(n_cell_types >= 3)
+
+
+```
+
+
+
+
+
+```{r}
+
+
+#####
+##### Making heatmap of shared sex genes
+#####
+
+
+df_sex_genes_filtered <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes.csv")
+#keep where logfc > 1
+dim(df_sex_genes_filtered )
+df_sex_genes_filtered <- df_sex_genes_filtered %>% filter(abs(logFC) > 1)
+df_sex_genes_filtered <- df_sex_genes_filtered %>%
+  select(-occurs)
+df_sex_genes_filtered  <- df_sex_genes_filtered   %>%
+  group_by(gene) %>%
+  summarize(occurs = n_distinct(cell_type)) %>%
+  left_join(df_sex_genes_filtered, by = "gene")
+
+df_sex_genes_filtered <-df_sex_genes_filtered %>% filter(occurs > 4)
+
+#keep only those where sign is same direction in all cases
+df_sex_genes_filtered <- df_sex_genes_filtered %>%
+  group_by(gene) %>%
+  filter(all(logFC > 0) | all(logFC < 0)) %>%
+  ungroup()
+
+#how many unique genes
+print(df_sex_genes_filtered %>% distinct(gene) %>% nrow())
+
+
+"Gal" %in%  df_sex_genes_filtered$gene
+df_sex_genes <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes_raw.csv")
+#keep genes in df_sex_filtered
+df_sex_genes <- df_sex_genes %>% filter(gene %in% df_sex_genes_filtered$gene)
+
+df_sex_genes <- df_sex_genes %>%
+  group_by(gene) %>%
+  mutate(avg_log2fc = mean(logFC, na.rm = TRUE)) %>%
+  ungroup()
+
+#first 20 gene names
+genes_of_interest <- unique(df_sex_genes$gene)
+
+final_results <- df_sex_genes
+"Gal" %in% genes_of_interest
+
+```
+
+
+
+```{r}
+
+# Load required packages
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+#only keep those that are avg abs logfc > 1
+final_results <- final_results %>%
+  group_by(gene) %>%
+  mutate(avg_abs_log2fc = mean(abs(logFC), na.rm = TRUE)) %>%
+  ungroup()
+
+#remove genes starting with gm or ens !grepl("^Gm|^Gm[0-9]+$|^ENS" !grepl("Rik$"
+final_results <- final_results %>% filter(!grepl("^Gm|^ENS|Rik$", gene))
+
+#keep top 30 genes with highest abs logFC
+final_results <- final_results %>% arrange(desc(avg_abs_log2fc))
+genes_of_interest1 <- unique(final_results$gene)[1:30]
+
+final_results<- final_results %>% filter(gene %in% genes_of_interest1)
+
+final_results <- final_results %>% arrange(desc(avg_log2fc))
+genes_of_interest <- unique(final_results$gene)[1:30]
+
+#remove fshb
+genes_of_interest <- genes_of_interest[genes_of_interest != "Fshb"]
+
+
+#-1 the logFC
+final_results$logFC <- -final_results$logFC
+# Create the heatmap
+plot <- final_results %>%
+  # Filter to only include genes of interest
+  dplyr::filter(gene %in% genes_of_interest) %>%
+  # Create a significance flag and preserve input order
+  mutate(is_significant = adj.P.Val < 0.05,
+         # Add line thickness variable
+         line_size = ifelse(gene %in% genes_of_interest, 0.6, 0.4),
+         # Convert genes to factor with levels in the exact order specified
+         gene = factor(gene, levels = genes_of_interest)) %>%
+  # Create the plot
+  ggplot(aes(x = cell_type, y = gene, fill = logFC)) +
+  geom_tile(aes(color = is_significant, size = line_size), 
+            width = 0.8, height = 0.8) +
+  
+  # Set color scales
+  scale_fill_gradient2(low = "#63b3ed", mid = "white", 
+                       high = "#ffa500", midpoint = 0) +
+  scale_color_manual(values = c("FALSE" = "gray", "TRUE" = "red"),
+                     name = "Significant",
+                     labels = c("FALSE" = "Not Significant", "TRUE" = "Significant"),
+                     guide = guide_legend(override.aes = list(
+                       fill = "white",
+                       size = 1,
+                       linetype = 1,
+                       linewidth = 2
+                     ))) +
+  scale_size_identity() +
+  # Customize theme
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1,
+                                   vjust = 1, size = 12),
+        axis.title = element_blank(),
+        panel.grid = element_blank()) +
+  #y axis italics
+  theme(axis.text.y = element_text(size = 10, face = "italic")) +
+  labs(fill = "logFC")
+
+plot
+
+#ggsave to /Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes_heatmap.png", 
+       plot = plot, 
+       width = 6.5, height = 5.5, dpi = 300)
+
+#svg
+ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes_heatmap.svg", 
+       plot = plot, 
+       width = 6.5, height = 5.5, dpi = 300)
+
+```
+
+
+
+
+
+
+
+
+
+
