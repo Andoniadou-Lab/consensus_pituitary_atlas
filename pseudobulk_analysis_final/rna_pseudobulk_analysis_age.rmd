@@ -1,5 +1,5 @@
 ---
-title: "Generating variance partition plots"
+title: "RNA pseudobulk analysis of age-dependent changes"
 author: "Bence Kover"
 date: "2026-01-27"
 output: html_document
@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Loading dependencies
+## Loading dependencies
 
 ```{r}
 library(DESeq2)
@@ -18,6 +18,7 @@ library(tidyverse)
 library(reticulate)
 ```
 
+## Loading datasets
 
 ```{r}
 
@@ -54,9 +55,7 @@ print(sum(meta_data$psbulk_n_cells))
 expression_table = seurat_object@assays$RNA$counts
 ```
 
-
-
-
+# Filter the datasets, and normalize
 
 ```{r}
 
@@ -132,8 +131,7 @@ colnames(design)<-make.names(colnames(design))
 
 ```
 
-
-
+# Proceed with limma-voom analysis
 
 ```{r}
 
@@ -144,6 +142,8 @@ fit <- lmFit(fit, design)
 fit <- eBayes(fit)
 
 ```
+
+# Save background set of genes and extract age-dependent genes in stem cells
 
 ```{r}
 background_genes <- rownames(dge)
@@ -172,7 +172,11 @@ print(rownames((top_genes)))
 print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
 
 head(top_genes)
+```
 
+# Identifying TFs that change with age in stem cells
+
+```{r}
 cpdb <- read_csv("/Users/k23030440/epitome_code/epitome/data/gene_group_annotation/v_0.01/cpdb.csv")
 head(cpdb)
 #keep where category is TF and keep gene
@@ -205,7 +209,7 @@ tfs_up
 tfs_down
 ```
 
-
+# Export changing ligands and receptors and TFs
 
 ```{r}
 
@@ -239,8 +243,7 @@ write.csv(receptors_up, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCo
 write.csv(receptors_down, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_receptors_down.csv")
 ```
 
-
-
+# Extract age-dependent genes for each cell type
 
 ```{r}
 
@@ -301,11 +304,9 @@ final_results_to_save = final_results %>% filter((abs(logFC) >= 0.5) & (adj.P.Va
 #print total sig
 print(nrow(final_results_to_save))
 write.csv(final_results_to_save, paste0("/Users/k23030440/epitome_code/epitome/data/aging/v_0.02/aging_genes.csv"))
-
-
-
 ```
 
+# Obtain pan-pituitary ageing genes (but specifically for cells of the pituitary lineage, e.g., not mesenchymal cells, pituicytes, immune cells, endothelial cells)
 
 ```{r}
 #keep only padj < 0.05
@@ -339,6 +340,7 @@ write_clip(paste(unique_pan_pit_genes, collapse = "\n"))
 
 ```
 
+# Across all of the age-dependent pan-pituitary genes, plotting a curated, interpretable subset.
 
 ```{r}
 
@@ -399,6 +401,8 @@ ggsave(plot, filename = "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sC
 ggsave(plot, filename = "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/DE/heatmap_aging_genes.svg", width = 5.1, height = 5.0, dpi = 300)
 
 ```
+
+# Plot overall number of age-dependent genes in every cell type
 
 ```{r}
 
@@ -506,7 +510,7 @@ print(plt)
 
 ```
 
-
+# Save plot
 
 ```{r}
 # Save the plot as PNG and SVG
@@ -533,9 +537,8 @@ print(plt)
 
 ```
 
-
-
-# Age related patterns
+# Matching genes to temporal trajectories
+# To this end, first load in the relevant datasets in their normalized formats.
 
 ```{r}
 
@@ -573,6 +576,7 @@ meta_data <- meta_data[meta_data$Modality == "sc", ]
 print(dim(normalized_expression)) 
 ```
 
+# Defining function that extract expression values of a specific gene from a specific cell typ
 
 ```{r}
 
@@ -591,6 +595,7 @@ get_values <- function(cell_type, gene_name, meta, expr_matrix) {
 data_list <- get_values("Stem_cells", "H19", meta_data, normalized_expression)
 ```
 
+# Define function that identifies tha temporal trajectory associated with the given cell type - gene combination
 
 ```{r}
 
@@ -677,6 +682,7 @@ analyze_gene_pattern <- function(data_list, verbose = TRUE) {
 }
 ```
 
+# Defining a function that plots gene expression vs time and also overlays a linear model vs a segmented model.
 
 ```{r}
 library(ggplot2)
@@ -745,11 +751,11 @@ plot_gene_models <- function(data_list, gene_label = "Gene", type_label = "Type"
 }
 ```
 
+# as an example plotting H19 in stem cells
 
 ```{r}
 
-# 2. Analyze
-gene="Cyp2f2"
+gene="H19"
 cell_type = "Stem_cells"
 
 dim(aging)
@@ -767,6 +773,7 @@ print(result$breakpoint)
 plot_gene_models(data_h19, gene_label = gene)
 ```
 
+# Iterate through all cell types and obtain temporal trajectories
 
 ```{r}
 
@@ -816,6 +823,7 @@ write.csv(final_summary_df, "/Users/k23030440/Library/CloudStorage/OneDrive-King
 
 ```
 
+# Show the number of genes in each temporal pattern
 
 ```{r}
 final_summary_df= read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/temporal_patterns/temporal_patterns.csv", header = TRUE, stringsAsFactors = FALSE)
@@ -828,6 +836,7 @@ table(final_summary_df$change_pattern)
 colnames(plot_data) <- c("Pattern", "Count")
 ```
 
+# Bar plot of the different temporal patterns in stem cells
 
 ```{r}
 
@@ -860,6 +869,10 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/figures/revision_figures/patterns_barplot.svg", width = 4, height = 3)
 
 ```
+
+
+# Plotting histogram of break points - this has limited biological interpretation for now, but with better temporal resolution, this will be interesting
+
 
 ```{r}
 
@@ -909,6 +922,7 @@ for (pattern in unique(final_summary_df$change_pattern)) {
 }
 ```
 
+# Define function that calls gene plotting and saves gene plots both png and svg
 
 ```{r}
 
@@ -932,6 +946,7 @@ save_gene_plots_dual <- function(cell_type, gene, base_path, meta_data, expressi
 
 ```
 
+# Save relevant example genes for each cell type
 
 ```{r}
 
@@ -959,12 +974,3 @@ save_gene_plots_dual("Stem_cells", "Mcrs1",
                      "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/figures/revision_figures/Mcrs1_Stem_cells", 
                      meta_data, normalized_expression)
 ```
-
-
-```{r}
-
-```
-
-
-
-

@@ -1,5 +1,5 @@
 ---
-title: "Generating variance partition plots"
+title: "RNA pseudobulk analysis of age-dependent changes"
 author: "Bence Kover"
 date: "2026-01-27"
 output: html_document
@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Loading dependencies
+## Loading dependencies
 
 ```{r}
 library(DESeq2)
@@ -19,7 +19,7 @@ library(reticulate)
 
 ```
 
-
+## Loading datasets
 
 ```{r}
 
@@ -57,9 +57,7 @@ print(sum(meta_data$psbulk_n_cells))
 expression_table = seurat_object@assays$RNA$counts
 ```
 
-
-
-
+# Proceed with limma-voom analysis
 
 ```{r}
 
@@ -137,7 +135,7 @@ colnames(design)<-make.names(colnames(design))
 ```
 
 
-
+# Proceed with limma-voom analysis
 
 ```{r}
 
@@ -149,9 +147,7 @@ fit <- eBayes(fit)
 
 ```
 
-
-
-
+# Save background set of genes and extract age-dependent genes in stem cells
 
 ```{r}
 
@@ -211,7 +207,7 @@ tfs_up
 tfs_down
 ```
 
-
+# Export changing ligands and receptors and TFs
 
 ```{r}
 
@@ -247,8 +243,7 @@ write.csv(receptors_down, "/Users/k23030440/Library/CloudStorage/OneDrive-King's
 
 ```
 
-
-
+# Extract age-dependent genes for each cell type
 
 ```{r}
 
@@ -302,18 +297,15 @@ final_results <- do.call(rbind, all_results)
 # Reset row names
 rownames(final_results) <- NULL
 
-
-
 #save to /Users/k23030440/epitome_code/epitome/aging/v_0.02
 version = "v_0.02"
 write.csv(final_results, paste0("/Users/k23030440/epitome_code/epitome/data/aging/v_0.02/aging_genes_2_month.csv"))
 
 
 final_results <- read.csv(paste0("/Users/k23030440/epitome_code/epitome/data/aging/v_0.02/aging_genes_2_month.csv"), header = TRUE, stringsAsFactors = FALSE)
-
-
 ```
 
+# Obtain pan-pituitary ageing genes (but specifically for cells of the pituitary lineage, e.g., not mesenchymal cells, pituicytes, immune cells, endothelial cells)
 
 ```{r}
 #keep only padj < 0.05
@@ -347,6 +339,7 @@ write_clip(paste(unique_pan_pit_genes, collapse = "\n"))
 
 ```
 
+# Across all of the age-dependent pan-pituitary genes, plotting a curated, interpretable subset.
 
 ```{r}
 
@@ -408,6 +401,7 @@ ggsave(plot, filename = "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sC
 
 ```
 
+# Plot overall number of age-dependent genes in every cell type
 
 ```{r}
 
@@ -515,7 +509,7 @@ print(plt)
 
 ```
 
-
+# Save plot
 
 ```{r}
 # Save the plot as PNG and SVG
@@ -539,8 +533,9 @@ ggsave(
 )
 
 print(plt)
-
 ```
+
+# Show how the >2 months results overlap with the full age-dependent gene list. This shows that much fewer genes are picked up and that these mostly increase, not decrease.
 
 ```{r}
 

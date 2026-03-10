@@ -868,6 +868,7 @@ text(median(final_summary_df$breakpoint[final_summary_df$breakpoint > 0
 ]) + 0.3, 150, labels = paste("Median:", round(10^median(final_summary_df$breakpoint[final_summary_df$breakpoint > 0]), 2)), col = "red")
 dev.off()
 
+
 #media 10**
 median_breakpoint <- median(10^final_summary_df$breakpoint[final_summary_df$breakpoint > 0])
 print(paste("Median Breakpoint (Age):", round(median_breakpoint, 2)))

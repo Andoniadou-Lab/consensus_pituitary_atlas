@@ -1,5 +1,5 @@
 ---
-title: "Generating variance partition plots"
+title: "ATAC pseudobulk analysis"
 author: "Bence Kover"
 date: "2026-01-27"
 output: html_document
@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Loading dependencies
+## Loading dependencies
 
 ```{r}
 library(DESeq2)
@@ -21,7 +21,7 @@ library(reticulate)
 library(Seurat)
 ```
 
-
+## Loading datasets
 
 ```{r}
 
@@ -111,6 +111,7 @@ meta_data = seurat_object@meta.data
 expression_table = seurat_object@assays$RNA$counts
 ```
 
+## Filtering object for relevant datasets and performing normalization
 
 ```{r}
 
@@ -164,8 +165,7 @@ dge = DGEList(counts = expression_table, group = meta_data$assignments)
 dge <- calcNormFactors(dge, method = "TMMwsp")
 ```
 
-
-
+# Running limma-voom workflow
 
 ```{r}
 
@@ -223,6 +223,7 @@ plot(top_genes$logFC, -log10(top_genes$P.Value), alpha=0.1,xlab = "log2 fold cha
 
 ```
 
+# Define function that compares accessibility between a given cell type vs every other cell types
 
 ```{r}
 
@@ -278,7 +279,7 @@ for (celltype in celltypes) {
 print(head(all_comparisons))
 ```
 
-
+# Define groupings relevant for lineage markers
 
 ```{r}
 grouping_1 <- list(list("Stem_cells"), list("Melanotrophs","Corticotrophs",
@@ -307,6 +308,8 @@ grouping_8 <- list(list("Thyrotrophs"), list("Lactotrophs", "Somatotrophs"))
 
 grouping_lists = list(grouping_1, grouping_2, grouping_3, grouping_4, grouping_5, grouping_6, grouping_7, grouping_8)
 ```
+
+# Define function that takes relevant results from all_comparisons, to identify signed intersection of hits for each lineage decision
 
 ```{r}
 #############
@@ -375,6 +378,7 @@ df <- find_significant_genes(all_comparisons, grouping_5[[1]], grouping_5[[2]])
 print(df)
 ```
 
+# Extracting lineage marker peaks
 
 ```{r}
 
@@ -420,12 +424,15 @@ for (i in 1:8) {
   cat("Number of significant peaks:", nrow(grouping_results), "\n")
 }
 ```
+
+# Export/save results
 ```{r}
 
 all_results <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/grouping_lineage_markers_2026_02_14.csv")
 table(all_results$grouping,all_results$direction)
 ```
 
+# Annotating object for motif enrichment
 
 ```{r}
 
@@ -492,6 +499,7 @@ enriched.motifs <- FindMotifs(
 
 ```
 
+# Performing motif enrichment on relevant significant peaks
 
 ```{r}
 
@@ -604,9 +612,9 @@ write.table(colnames(matrix),
 library(Matrix)
 writeMM(matrix, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/motif_matrix.mtx")
 writeMM(matrix, "/Users/k23030440/epitome_code/epitome/data/heatmap/v_0.02/motif_matrix.mtx")
-#
 ```
 
+# Save the normalized peak matrix
 
 ```{r}
 # Preprocessing script to normalize and save data
@@ -655,6 +663,8 @@ writeMM(normalized_expression, "/Users/k23030440/epitome_code/epitome/data/acces
 ```
 
 
+# Load the normalized peak matrix
+
 ```{r}
 library(Matrix)
 library(readr)
@@ -680,6 +690,7 @@ meta_data <- read.csv(paste0(base_path, "atac_meta_data.csv"))
 
 ```
 
+# save all motif results
 
 ```{r}
 
@@ -714,6 +725,7 @@ write.csv(all_results_df,
           row.names = FALSE)
 ```
 
+# Generate pseudobulk PCA and UMAP plots. First PCA colored by cell type and assay
 
 ```{r}
 #normalized_expression <- normalize_expression(expression_table, dge)
@@ -794,7 +806,7 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 
 ```
 
-
+# PCA colored by sex
 
 ```{r}
 plot_data <- data.frame(
@@ -843,6 +855,8 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_PCA_by_sex.svg", p2, width = 6, height = 6)
 
 ```
+
+# UMAP colored by cell type and sex
 
 ```{r}
 # Extract first 20 PCs
@@ -898,16 +912,9 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 #and svg
 ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/ATAC_UMAP_by_sex.svg", p2, width = 6, height = 6)
 
-
-
-
-
-
-
-
 ```
 
-Chromvar
+
 
 ```{r}
 #Chromvar
@@ -915,8 +922,6 @@ rm(seurat_object)
 rm(expression_table)
 rm(atac_object_subset)
 rm(atac_assay)
-
-
 
 #save atac_object rds
 saveRDS(atac_object, 
@@ -927,6 +932,7 @@ atac_object <- readRDS(
 )
 ```
 
+# Running Chromvar analysis
 
 ```{r}
 
@@ -941,7 +947,7 @@ object = atac_object,
 genome = BSgenome.Mmusculus.UCSC.mm10)
 ```
 
-
+# Extracting and saving chromvar results
 ```{r}
 
 motifs = rownames(atac_object[["chromvar"]])
@@ -973,7 +979,7 @@ write_csv(atac_object@meta.data, "/Users/k23030440/epitome_code/epitome/data/chr
 
 
 ```
-extracting motif locations for epitome
+Extracting motif locations for epitome
 
 ```{r}
 
@@ -1018,7 +1024,7 @@ final_df <- final_df[!duplicated(final_df[, c("start","seqnames", "motif")]), ]
 write.csv(final_df, "/Users/k23030440/epitome_code/epitome/data/accessibility/v_0.02/atac_motif_data.csv")
 
 ```
-
+# Extracting gene annotations and coordinates for epitome
 
 ```{r}
 
@@ -1090,7 +1096,7 @@ sox2
 
 ```
 
-# Cell typing peaks
+# Extracting cell typing peaks - analogous to cell typing genes
 
 ```{r}
 # Main loop

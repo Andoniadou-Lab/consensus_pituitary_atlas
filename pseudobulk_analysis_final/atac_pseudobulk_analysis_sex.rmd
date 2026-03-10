@@ -1,5 +1,5 @@
 ---
-title: "Generating variance partition plots"
+title: "ATAC analysis (Sex-biased accessibility)"
 author: "Bence Kover"
 date: "2026-01-27"
 output: html_document
@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Loading dependencies
+## Loading dependencies
 
 ```{r}
 library(DESeq2)
@@ -21,7 +21,7 @@ library(reticulate)
 library(Seurat)
 ```
 
-
+## Loading datasets
 
 ```{r}
 
@@ -111,6 +111,7 @@ meta_data = seurat_object@meta.data
 expression_table = seurat_object@assays$RNA$counts
 ```
 
+## Filtering object for relevant datasets and performing normalization
 
 ```{r}
 
@@ -164,7 +165,7 @@ dge = DGEList(counts = expression_table, group = meta_data$assignments)
 dge <- calcNormFactors(dge, method = "TMMwsp")
 ```
 
-
+# Running limma-voom workflow
 
 ```{r}
 
@@ -207,7 +208,7 @@ top_genes$genes <- rownames(top_genes)
 nrow(top_genes[top_genes$adj.P.Val < 0.05, ])
 ```
 
-
+# Printing sex-biased genes for stem cells. Then iterating through cell types to obtain sex-biased peaks for each.
 ```{r}
 
 library(clipr)
@@ -251,8 +252,6 @@ for (cell_type in cell_types) {
     
     # Get results
     results <- topTable(diff_expr, number=Inf, lfc = 0.5)
-    #remove regions that start with chrY
-    #results <- results[!grepl("chrY",rownames(results)),]
     
     # Store significant regions
     male_regions <- rownames(results[results$adj.P.Val < 0.05 & results$logFC > 0,])
@@ -284,15 +283,11 @@ lactotrophs_up <- results_list[results_list$logFC > 0 & results_list$cell_type =
 lactotrophs_down <- results_list[results_list$logFC < 0 & results_list$cell_type == "Lactotrophs",]
 gonadotrophs_up <- results_list[results_list$logFC > 0 & results_list$cell_type == "Gonadotrophs",]
 gonadotrophs_down <- results_list[results_list$logFC < 0 & results_list$cell_type == "Gonadotrophs",]
-
-
 ```
 
-
+# Plotting overall number of male-biased and female-biased peaks in each cell type
 
 ```{r}
-
-
 # Create plotting data
 plot_data <- data.frame(
   cell_type = names(sex_specific_regions),
@@ -370,8 +365,6 @@ plt = ggplot(plot_data_long, aes(x = cell_type, y = count, fill = sex)) +
     axis.text.y = element_text(size = 14)
   )
 
-plt
-
 # Save the plot
 fold = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/"
 ggsave(plt, filename = paste0(fold,"sex_biased_accessibility.png"), width = 6, height = 5.5, dpi = 300)
@@ -380,6 +373,7 @@ ggsave(plt, filename = paste0(fold,"sex_biased_accessibility.svg"), width = 6, h
 plt
 ```
 
+# Annotating object for motif enrichment then define function that performs motif enrichment
 
 ```{r}
 ##############
@@ -418,7 +412,6 @@ genome(annotations) <- "mm10"
 # Add the gene information to the ATAC object
 Annotation(atac_object) <- annotations
 
-
 # add motif information
 atac_object <- AddMotifs(
   object = atac_object,
@@ -426,7 +419,6 @@ atac_object <- AddMotifs(
   pfm = pfm,
   p.cutoff = 1e-05, w = 10
 )
-
 
 # Function to perform motif analysis for a specific grouping and direction
 perform_motif_analysis <- function(sex_specific_regions, grouping_name, direction, output_dir) {
@@ -466,7 +458,7 @@ perform_motif_analysis <- function(sex_specific_regions, grouping_name, directio
 }
 ```
 
-
+# Perform motif analysis on pituitary lineage cell types
 
 ```{r}
 # Create output directory
@@ -502,6 +494,7 @@ saveRDS(all_enrichment_results, file.path(output_dir, "all_motif_results.rds"))
 
 ```
 
+# Identify Ar and Esr1 enrichment in sex-biased genes across pituitary cell types
 
 ```{r}
 
@@ -610,10 +603,9 @@ write.csv(summary_table,
           row.names = FALSE)
 ```
 
-
+# Plotting top 20 sex-biased gonadotrophs TF motifs
 
 ```{r}
-
 library(tidyverse)
 library(patchwork)
 library(ggplot2)
@@ -719,6 +711,7 @@ ggsave(plt_gonadotrophs, filename = file.path(output_dir, "gonadotroph_top20_mot
 print(plt_gonadotrophs)
 ```
 
+# Plotting top 20 sex-biased lactotrophs TF motifs
 
 ```{r}
 
@@ -827,6 +820,7 @@ ggsave(plt_lactotrophs, filename = file.path(output_dir, "lactotroph_top20_motif
 print(plt_lactotrophs)
 ```
 
+# Plotting top 20 sex-biased stem cell TF motifs
 
 ```{r}
 

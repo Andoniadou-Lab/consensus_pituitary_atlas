@@ -1,5 +1,5 @@
 ---
-title: "Generating variance partition plots"
+title: "RNA pseudobulk analysis"
 author: "Bence Kover"
 date: "2026-01-27"
 output: html_document
@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Loading dependencies
+# Loading dependencies
 
 ```{r}
 library(DESeq2)
@@ -19,7 +19,7 @@ library(reticulate)
 library(variancePartition)
 ```
 
-
+## Loading datasets
 
 ```{r}
 
@@ -60,7 +60,7 @@ unique(meta_data$SRA_ID)
 ```
 
 
-
+## Filtering object for relevant datasets and performing normalization
 
 
 ```{r}
@@ -132,7 +132,7 @@ print(length(unique(meta_data$SRA_ID)))
 ```
 
 
-
+# Processing prior to dream
 
 ```{r}
 
@@ -224,6 +224,9 @@ design <- model.matrix(~ 0 + assignments, data = meta_data)
 
 fit <- voom(dge, design, plot=TRUE)
 ```
+
+# Defining dream formula and running dream
+
 ```{r}
 rownames(meta_data) <- colnames(dge)
 param <- SnowParam(2, "SOCK", progressbar = TRUE)
@@ -238,7 +241,7 @@ vobjDream <- voomWithDreamWeights(dge, form, meta_data, BPPARAM = param)
 ```
 
 
-Defining contrasts
+# Defining contrasts for dream
 ```{r}
 
 L <- makeContrastsDream(form, meta_data,
@@ -394,6 +397,7 @@ fit <- eBayes(fit)
 
 ```
 
+# Save coefs for cell types, which represent average gene expression. These are used for some analyses, including Figure 5C.
 
 
 ```{r}
@@ -419,6 +423,7 @@ coef_df$gene = rownames(coef_df)
 ```
 
 
+# As an example result, examining stem cells vs thyrotrophs
 
 
 ```{r}
@@ -445,6 +450,7 @@ celltypes <- unique(meta_data$assignments)
 
 ```
 
+# Define function that compares expression between a given cell type vs every other cell types
 
 ```{r}
 # Function to compare one cell type against all others
@@ -486,6 +492,10 @@ write.csv(all_comparisons, "/Users/k23030440/Library/CloudStorage/OneDrive-King'
 
 ```
 
+
+# Define groupings relevant for lineage markers
+
+
 ```{r}
 #DE groupings
 grouping_1 <- list(list("Stem_cells"), list("Melanotrophs","Corticotrophs",
@@ -514,7 +524,7 @@ grouping_8 <- list(list("Thyrotrophs"), list("Lactotrophs", "Somatotrophs"))
 
 ```
 
-
+# Define function that takes relevant results from all_comparisons, to identify signed intersection of hits for each lineage decision
 
 ```{r}
 #############
@@ -595,6 +605,7 @@ print(head(df))
 
 ```
 
+# Extracting lineage markers
 
 ```{r}
 
@@ -648,6 +659,7 @@ for (i in 1:8) {
 }
 ```
 
+# Export/save results
 
 ```{r}
 
@@ -666,7 +678,7 @@ all_results <- read_csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCo
 table(all_results$grouping,all_results$direction)
 
 ```
-Comparison against previous results
+# Comparison against previous results (pre-print version of atlas)
 
 ```{r}
 all_results <- read_csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/grouping_lineage_markers_2026_02_14.csv")
@@ -752,6 +764,7 @@ ggplot(plot_down, aes(x = grouping, y = n, fill = category)) +
 
 ```
 
+
 ```{r}
 library(tidyverse)
 
@@ -829,7 +842,7 @@ cat("Percent of v2 genes in v1:", round(pct_v2_in_v1, 1), "%\n")
 ```
 
 
-
+# Save the gene expression matrix
 ```{r}
 library(edgeR)
 library(Matrix)
@@ -867,6 +880,11 @@ write.table(colnames(normalized_expression), paste0("/Users/k23030440/epitome_co
 rownames(normalized_expression)
 
 ```
+
+
+# Load back the data
+
+
 ```{r}
 library(Matrix)
 library(readr)
@@ -889,7 +907,7 @@ colnames(normalized_expression) <- datasets
 meta_data <- read_csv(paste0(base_path, "meta_data.csv"))
 ```
 
-make PCA of normalized_expression. Plot PC1 and PC2 twice and color by assignment and exp_type
+# Make PCA of normalized_expression colored by assignment and exp_type
 
 ```{r}
 #normalized_expression <- normalize_expression(expression_table_original, dge_original)
@@ -970,6 +988,7 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 
 ```
 
+# Make PCA of normalized_expression colored by sex
 
 
 ```{r}
@@ -1019,6 +1038,8 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/RNA_PCA_by_sex.svg", p2, width = 6, height = 6)
 
 ```
+
+# Make PCA of sc datasets colored by cell type
 
 ```{r}
 # Extract first 20 PCs
@@ -1079,7 +1100,7 @@ p1
 
 ```
 
-
+# Make UMAP of sc datasets colored by cell type
 
 ```{r}
 
@@ -1118,22 +1139,23 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 
 ```
 
+# Make PCA and UMAP of sn datasets colored by cell type
 
 ```{r}
-normalized_expression_sc <- normalized_expression[, meta_data$exptype == "sn"]
-keep_genes_sc <- rowSums(normalized_expression_sc > 1) >= 0.05 * ncol(normalized_expression_sc) & rowSums(normalized_expression_sc) >= 5000
-normalized_expression_sc <- normalized_expression_sc[keep_genes_sc, ]
+normalized_expression_sn <- normalized_expression[, meta_data$exptype == "sn"]
+keep_genes_sn <- rowSums(normalized_expression_sn > 1) >= 0.05 * ncol(normalized_expression_sn) & rowSums(normalized_expression_sn) >= 5000
+normalized_expression_sn <- normalized_expression_sn[keep_genes_sn, ]
 
 
-pca_data_sc <- prcomp(t(log1p(normalized_expression_sc)), center = TRUE, scale. = TRUE)
-var_explained_sc <- pca_data_sc$sdev^2 / sum(pca_data_sc$sdev^2) * 100
-plot_data_sc <- data.frame(
-  PC1 = pca_data_sc$x[,1],
-  PC2 = pca_data_sc$x[,2],
+pca_data_sn <- prcomp(t(log1p(normalized_expression_sn)), center = TRUE, scale. = TRUE)
+var_explained_sn <- pca_data_sn$sdev^2 / sum(pca_data_sn$sdev^2) * 100
+plot_data_sn <- data.frame(
+  PC1 = pca_data_sn$x[,1],
+  PC2 = pca_data_sn$x[,2],
   Assignment = meta_data$assignments[meta_data$exptype == "sn"]
 )
 
-p1 <- ggplot(plot_data_sc, aes(x = PC1, y = PC2, fill = Assignment)) +
+p1 <- ggplot(plot_data_sn, aes(x = PC1, y = PC2, fill = Assignment)) +
   geom_point(size =3, alpha = 1, shape = 21, stroke = 0.5, color = "black") +
   theme_minimal() +
   labs(
@@ -1151,7 +1173,7 @@ p1
 library(umap)
 
 # Extract first 20 PCs
-pcs_for_umap <- pca_data_sc$x[,1:10]
+pcs_for_umap <- pca_data_sn$x[,1:10]
 
 # Run UMAP
 #set 42 seed
@@ -1183,20 +1205,22 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 ```
 
 
-```{r}
-normalized_expression_sc <- normalized_expression[, meta_data$exptype == "multi_rna"]
-keep_genes_sc <- rowSums(normalized_expression_sc > 1) >= 0.05 * ncol(normalized_expression_sc) & rowSums(normalized_expression_sc) >= 5000
-normalized_expression_sc <- normalized_expression_sc[keep_genes_sc, ]
+# Make PCA of multi_rna datasets colored by cell type
 
-pca_data_sc <- prcomp(t(log1p(normalized_expression_sc)), center = TRUE, scale. = TRUE)
-var_explained_sc <- pca_data_sc$sdev^2 / sum(pca_data_sc$sdev^2) * 100
-plot_data_sc <- data.frame(
-  PC1 = pca_data_sc$x[,1],
-  PC2 = pca_data_sc$x[,2],
+```{r}
+normalized_expression_multi <- normalized_expression[, meta_data$exptype == "multi_rna"]
+keep_genes_multi <- rowSums(normalized_expression_multi > 1) >= 0.05 * ncol(normalized_expression_multi) & rowSums(normalized_expression_multi) >= 5000
+normalized_expression_multi <- normalized_expression_multi[keep_genes_multi, ]
+
+pca_data_multi <- prcomp(t(log1p(normalized_expression_multi)), center = TRUE, scale. = TRUE)
+var_explained_multi <- pca_data_multi$sdev^2 / sum(pca_data_multi$sdev^2) * 100
+plot_data_multi <- data.frame(
+  PC1 = pca_data_multi$x[,1],
+  PC2 = pca_data_multi$x[,2],
   Assignment = meta_data$assignments[meta_data$exptype == "multi_rna"]
 )
 
-p1 <- ggplot(plot_data_sc, aes(x = PC1, y = PC2, fill = Assignment)) +
+p1 <- ggplot(plot_data_multi, aes(x = PC1, y = PC2, fill = Assignment)) +
   geom_point(size =3, alpha = 1, shape = 21, stroke = 0.5, color = "black") +
   theme_minimal() +
   labs(
@@ -1212,13 +1236,14 @@ p1 <- ggplot(plot_data_sc, aes(x = PC1, y = PC2, fill = Assignment)) +
 p1
 ```
 
+# Make UMAP of multi_rna datasets colored by cell type
 
 ```{r}
 
 library(umap)
 
 # Extract first 20 PCs
-pcs_for_umap <- pca_data_sc$x[,1:10]
+pcs_for_umap <- pca_data_multi$x[,1:10]
 
 set.seed(42)
 umap_result <- umap(pcs_for_umap)
@@ -1248,8 +1273,7 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 
 ```
 
-
-
+# Extract cell typing markers
 
 ```{r}
 ##################
@@ -1332,6 +1356,7 @@ markers_df <- markers_df %>% filter(!is.na(gene))
 print(table(markers_df$celltype))
 ```
 
+# Print markers
 
 ```{r}
 # Print the first few rows of the final markers dataframe
@@ -1360,13 +1385,13 @@ for (ct in celltypes) {
 }
 ```
 
+# Restrict to those that were not used in the initial cellassign workflow
 
 ```{r}
 #############
 ###Novel markers other than those used in CellAssign
 ##########
 
-#load /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/spatial panel construction/cellassign_markers_updated.xlsx
 library(readxl)
 cellassign_markers = read_excel("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/spatial panel construction/cellassign_markers_updated.xlsx")
 cellassign_markers = cellassign_markers$Gene
@@ -1403,7 +1428,7 @@ for (ct in celltypes) {
 
 ```
 
-# Compare cell typing markers to previous version
+# Compare cell typing markers to previous version (from pre-print)
 
 
 ```{r}
@@ -1541,8 +1566,6 @@ spearman_cor_log
 cat("Spearman correlation:", round(spearman_cor_log, 3), "\n")
 cat("Percent of v1 genes in v2:", round(pct_v1_in_v2, 1), "%\n")
 cat("Percent of v2 genes in v1:", round(pct_v2_in_v1, 1), "%\n")
-
-
 ```
 
 

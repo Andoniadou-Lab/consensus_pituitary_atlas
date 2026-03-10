@@ -165,6 +165,7 @@ for (coef in coef_names){
 
 
 
+
 library(tidyverse)
 
 perturbs_folder <- "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/perturbs/"
@@ -185,6 +186,9 @@ all_results_gata2<- map_df(coef_names, function(coef){
   read.csv(file) %>%
     mutate(cell_type = coef)
 })
+
+#save all_results_gata2
+write.csv(all_results_gata2, paste(perturbs_folder,"all_gata2_results.csv",sep=""), row.names = FALSE)
 
 
 #remove genes with Gm
@@ -923,6 +927,13 @@ all_results <- map_df(coef_names, function(coef){
   read.csv(file) %>%
     mutate(cell_type = coef)
 })
+
+
+
+#save all_results
+write.csv(all_results, paste(perturbs_folder,"all_HFD_dream_results.csv",sep=""), row.names = FALSE)
+
+
 
 sig_results <- all_results %>%
   filter(adj.P.Val < 0.05) %>%

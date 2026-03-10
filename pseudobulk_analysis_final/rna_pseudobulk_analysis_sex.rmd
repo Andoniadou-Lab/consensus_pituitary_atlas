@@ -1,5 +1,5 @@
 ---
-title: "Generating variance partition plots"
+title: "RNA pseudobulk analysis (Sex)"
 author: "Bence Kover"
 date: "2026-01-27"
 output: html_document
@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Loading dependencies
+## Loading dependencies
 
 ```{r}
 library(DESeq2)
@@ -17,10 +17,9 @@ library(Seurat)
 library(tidyverse)
 library(reticulate)
 library(variancePartition)
-
 ```
 
-
+## Loading datasets
 
 ```{r}
 
@@ -60,7 +59,7 @@ unique(meta_data$SRA_ID)
 ```
 
 
-
+## Filtering object for relevant datasets
 
 
 ```{r}
@@ -135,8 +134,7 @@ meta_data$index <- colnames(expression_table)
 ```
 
 
-
-
+## Normalization and running voom
 
 ```{r}
 
@@ -150,15 +148,11 @@ meta_data_sc = meta_data[meta_data$exptype == "sc",]
 exp_table_sn = expression_table[,meta_data$exptype == "sn"]
 meta_data_sn = meta_data[meta_data$exptype == "sn",]
 
-#exp_table_multi = expression_table[,meta_data$exptype == "multi_rna"]
-#meta_data_multi = meta_data[meta_data$exptype == "multi_rna",]
-
-
 dge = DGEList(counts = expression_table, group = meta_data$assignments)
 # Prepare the DGEList object for limma voom
 dge_sc <- DGEList(counts = exp_table_sc, group = meta_data_sc$assignments)
 dge_sn <- DGEList(counts = exp_table_sn, group = meta_data_sn$assignments)
-#dge_multi <- DGEList(counts = exp_table_multi, group = meta_data_multi$assignments)
+
 
 library(limma)
 library(edgeR)
@@ -173,21 +167,17 @@ dim(dge)
 gene_names <- rownames(dge)
 dge_sc <- dge_sc[gene_names,]
 dge_sn <- dge_sn[gene_names,]
-#dge_multi <- dge_multi[gene_names,]
 
 #norm
 dge_sc <- calcNormFactors(dge_sc, method = "TMM")
 dge_sn <- calcNormFactors(dge_sn, method = "TMM")
-#dge_multi <- calcNormFactors(dge_multi, method = "TMM")
 
 
 
-dge$samples = rbind(#dge_multi$samples,
-                    dge_sc$samples,dge_sn$samples)
+dge$samples = rbind(dge_sc$samples,dge_sn$samples)
 
 
-meta_data = rbind(#meta_data_multi,
-                  meta_data_sc,
+meta_data = rbind(meta_data_sc,
                   meta_data_sn
                   )
 
@@ -204,6 +194,7 @@ colnames(design) <- make.names(colnames(design))
 fit <- voom(dge, design, plot=TRUE)
 ```
 
+# Defining contrasts (technically redundant step, but simplifies naming), and defining formula
 
 ```{r}
 
@@ -231,6 +222,7 @@ L
 plotContrasts(L)
 ```
 
+## Fitting dream
 
 ```{r}
 
@@ -241,6 +233,7 @@ fit <- dream(vobjDream, form, meta_data, L=L)
 fit <- eBayes(fit)
 ```
 
+# Examining stem cell hits
 
 ```{r}
 # Get top differentially expressed genes
@@ -251,6 +244,8 @@ top_genes$genes <- rownames(top_genes)
 print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
 
 ```
+
+# Loading gene annotations to print some TFs. Also save results.
 
 ```{r}
 
@@ -282,6 +277,7 @@ write.csv(down_genes, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sColl
 
 ```
 
+# Extract cell type specific hits
 
 ```{r}
 
@@ -295,8 +291,6 @@ for (cell_type in cell_types) {
   # Get results
   results <- topTable(fit, coef=coef,number=Inf,adjust.method="BH", lfc=1)
   
-  #filter out this where Avg_exp is 0
-  #results <- results[results$AveExpr > 0,]
   
   # Store significant genes (positive logFC = male, negative = female)
   male_genes <- rownames(results[results$adj.P.Val < 0.05 & results$logFC > 0,])
@@ -312,6 +306,8 @@ for (cell_type in cell_types) {
 }
 
 ```
+
+# Plotting overall sex-biased genes across cell types
 
 ```{r}
 
@@ -345,8 +341,6 @@ plot_data_long$label <- ifelse(plot_data_long$sex == "Male",
                                paste0("   ", plot_data_long$label),
                                plot_data_long$label)
 
-#remove Posterior_pit
-plot_data_long <- plot_data_long[plot_data_long$cell_type != "Posterior_pit",]
 plot_data_long$count <- as.numeric(plot_data_long$count)
 # Ensure count is numeric
 plot_data_long$count <- as.numeric(plot_data_long$count)
@@ -416,6 +410,8 @@ plt
 
 ```
 
+# Obtain data frame for all results
+
 
 ```{r}
 df <- data.frame()
@@ -449,6 +445,7 @@ df <- df %>%
 df
 ```
 
+# Saving sex-biased results
 
 ```{r}
 
@@ -471,8 +468,7 @@ write.csv(df_raw,"/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLo
 
 ```
 
-
-
+# Keep genes that occur across cell types
 
 ```{r}
 
@@ -493,8 +489,7 @@ df_common_male <- df %>%
 ```
 
 
-
-
+# Make a heatmap of genes that occur in the most cell types, but showing this in a balanced way (18 for male bias, 18 for female bias)
 
 ```{r}
 #####
@@ -640,7 +635,7 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 
 ```
 
-# Compare against v1 results
+# Comparing these new results against v1 results (pre-print version of the atlas)
 ```{r}
 all_results <- read_csv("/Users/k23030440/epitome_code/epitome/data/sex_dimorphism/v_0.01/sexually_dimorphic_genes.csv")
 all_results
