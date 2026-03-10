@@ -109,10 +109,6 @@ write.table(
 
 
 
-
-
-
-
 root = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/"
 figs_folder = paste(root,"Figures/",sep="")
 
