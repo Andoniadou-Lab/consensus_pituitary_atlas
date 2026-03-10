@@ -76,6 +76,43 @@ write.csv(vars, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLon
 write.csv(vars, "/Users/k23030440/epitome_code/epitome/data/additional_downloads/consensus_chromatin_landscape/v_0.02/consensus_chromatin_landscape.csv", row.names = FALSE)
 
 
+
+library(dplyr)
+library(tidyr)
+
+bed_df <- data.frame(peak = vars) %>%
+  tidyr::separate(peak, into = c("chrom", "coords"), sep = ":") %>%
+  tidyr::separate(coords, into = c("start", "end"), sep = "-")
+
+# ensure numeric
+bed_df$start <- as.numeric(bed_df$start)
+bed_df$end <- as.numeric(bed_df$end)
+
+# Save BED (tab-separated, no header)
+write.table(
+  bed_df,
+  "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/consensus_chromatin_landscape.bed",
+  sep = "\t",
+  row.names = FALSE,
+  col.names = FALSE,
+  quote = FALSE
+)
+
+write.table(
+  bed_df,
+  "/Users/k23030440/epitome_code/epitome/data/additional_downloads/consensus_chromatin_landscape/v_0.02/consensus_chromatin_landscape.bed",
+  sep = "\t",
+  row.names = FALSE,
+  col.names = FALSE,
+  quote = FALSE
+)
+
+
+
+
+
+
+
 root = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/"
 figs_folder = paste(root,"Figures/",sep="")
 
