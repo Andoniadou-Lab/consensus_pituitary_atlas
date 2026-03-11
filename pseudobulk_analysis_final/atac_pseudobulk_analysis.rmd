@@ -108,7 +108,6 @@ write.table(
 )
 
 
-
 root = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/"
 figs_folder = paste(root,"Figures/",sep="")
 
@@ -437,6 +436,21 @@ results_list <- lapply(seq_along(all_groupings), function(i) {
 
 # Combine all results into a single dataframe
 all_results <- do.call(rbind, results_list)
+```
+
+
+```{r}
+#rename gene to peak
+all_results$peak <- all_results$gene
+#chr start end but keep peak as well
+all_results <- all_results %>%
+  tidyr::separate(gene, into = c("chr", "coords"), sep = ":") %>%
+  tidyr::separate(coords, into = c("start", "end"), sep = "-")
+head(all_results)
+```
+
+
+```{r}
 
 write_csv(all_results, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/grouping_lineage_markers_2026_02_14.csv")
 write_csv(all_results, "/Users/k23030440/epitome_code/epitome/data/heatmap/v_0.02/atac_grouping_lineage_markers.csv")
@@ -517,17 +531,17 @@ if(nrow(target_peaks) == 0) {
 }
 
 #grouping1_up$gene change : to -
-target_peaks$gene <- gsub(":", "-", target_peaks$gene)
+target_peaks$peak <- gsub(":", "-", target_peaks$peak)
 
 all_target_peaks <- all_results
-all_target_peaks$gene <- gsub(":", "-", all_target_peaks$gene)
+all_target_peaks$peak <- gsub(":", "-", all_target_peaks$peak)
 
 #keep only target_peaks
-atac_object_subset = atac_object[rownames(atac_object) %in% all_target_peaks$gene]
+atac_object_subset = atac_object[rownames(atac_object) %in% all_target_peaks$peak]
 
 enriched.motifs <- FindMotifs(
   object = atac_object_subset,
-  features = target_peaks$gene
+  features = target_peaks$peak
 )
 
 ```
@@ -548,23 +562,23 @@ perform_motif_analysis <- function(all_results, grouping_name, direction, output
     message(sprintf("No peaks found for %s (%s)", grouping_name, direction))
     return(NULL)
   }
-  #grouping1_up$gene change : to -
-  target_peaks$gene <- gsub(":", "-", target_peaks$gene)
+  #grouping1_up$peak change : to -
+  target_peaks$peak <- gsub(":", "-", target_peaks$peak)
   
   
   
   all_target_peaks <- all_results[all_results$grouping == grouping_name, ]
-  all_target_peaks$gene <- gsub(":", "-", all_target_peaks$gene)
+  all_target_peaks$peak <- gsub(":", "-", all_target_peaks$peak)
   #keep only target_peaks
-  atac_object_subset = atac_object[rownames(atac_object) %in% all_target_peaks$gene]
+  atac_object_subset = atac_object[rownames(atac_object) %in% all_target_peaks$peak]
   
   #atac_object_ only keep peaks that start with chr
   atac_object_ = atac_object[grep("^chr", rownames(atac_object)), ]
-  target_peaks$gene = target_peaks$gene[grep("^chr", target_peaks$gene)]
+  target_peaks$peak = target_peaks$peak[grep("^chr", target_peaks$peak)]
   
   enriched.motifs <- FindMotifs(
     object = atac_object_,
-    features = target_peaks$gene,
+    features = target_peaks$peak,
     background = 100000
   )
   enriched.motifs
@@ -633,7 +647,6 @@ write.table(rownames(matrix),
 write.table(rownames(matrix),
             "/Users/k23030440/epitome_code/epitome/data/heatmap/v_0.02/motif_matrix_rows.txt",
             row.names = FALSE, col.names = FALSE, quote = FALSE)
-
 
 write.table(colnames(matrix),
             "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/motif_matrix_cols.txt",
