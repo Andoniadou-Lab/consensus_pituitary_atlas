@@ -51,7 +51,6 @@ meta_data <- as.data.frame(adata$obs) # Convert obs to a data frame
 colnames(meta_data)[colnames(meta_data) == "GEO"] <- "sample"
 vars <- adata$var
 vars <-  py_to_r(adata$var_names$to_list())
-vars
 
 #whats the overlap of vars and vars_multi
 print(length(intersect(vars, vars_multi)))

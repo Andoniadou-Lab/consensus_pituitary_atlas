@@ -51,7 +51,6 @@ meta_data <- as.data.frame(adata$obs) # Convert obs to a data frame
 colnames(meta_data)[colnames(meta_data) == "GEO"] <- "sample"
 vars <- adata$var
 vars <-  py_to_r(adata$var_names$to_list())
-vars
 
 #whats the overlap of vars and vars_multi
 print(length(intersect(vars, vars_multi)))
@@ -214,9 +213,9 @@ nrow(top_genes[top_genes$adj.P.Val < 0.05, ])
 library(clipr)
 # Write the genes to clipboard, one per line
 up_genes <- top_genes %>% dplyr::filter(logFC > 0 & adj.P.Val < 0.05)
-clipr::write_clip(paste(up_genes$gene, collapse = "\n"))
+#clipr::write_clip(paste(up_genes$gene, collapse = "\n"))
 down_genes <- top_genes %>% dplyr::filter(logFC < 0 & adj.P.Val < 0.05)
-clipr::write_clip(paste(down_genes$gene, collapse = "\n"))
+#clipr::write_clip(paste(down_genes$gene, collapse = "\n"))
 
 
 # Initialize a list to store results
