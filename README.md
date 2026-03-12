@@ -1,10 +1,8 @@
-# Consensus Pituitary atlas
+# Consensus Pituitary Atlas
 A resource for uniform cell-typing in the field of mouse pituitary biology. Built on all publicly available mouse single-cell profiling datasets.
 
 #  Contents
-...
-
-
+Jupyter notebooks, R markdowns and corresponding HTML files for all analyses presented in the paper. If anything is unclear, please do reach out or raise an issue.
 
 # Top cell-typing markers
 
@@ -83,11 +81,13 @@ A resource for uniform cell-typing in the field of mouse pituitary biology. Buil
 - [x] Start curation, and build data processing workflow - July, 2024
 - [x] Arrive at intermediate results, start building epitome - Dec, 2024
 - [x] Finalise results using all datasets published to date - Oct, 2025
-- [ ] Release pre-print
+- [x] Release pre-print - Oct, 2025
 - [ ] Release final peer-reviewed publication
 
 ## Citation
 To cite the Consensus Pituitary Atlas, for now cite the pre-print:
+
+Kövér, B., Willis, T. L., Sherwin, O., Kaufman-Cook, J., Kemkem, Y., Segoviano, M. V., Lodge, E. J., Zamojski, M., Mendelev, N., Zhang, Z., Smith, G. R., Bernard, D. J., Lu, H.-C., Sealfon, S. C., Ruf-Zamojski, F., and Andoniadou, C. L. (2025) Consensus Pituitary Atlas, a scalable resource for annotation, novel marker discovery and analyses in pituitary gland research. 10.1101/2025.10.28.685060
 
 
 
