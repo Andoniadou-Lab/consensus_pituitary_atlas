@@ -71,7 +71,7 @@ Jupyter notebooks, R markdowns and corresponding HTML files for all analyses pre
 - [x] Arrive at intermediate results, start building epitome - Dec, 2024
 - [x] Finalise results using all datasets published to date - Oct, 2025
 - [x] Release pre-print - Oct, 2025
-- [x] Release final peer-reviewed publication - May, 2025
+- [x] Release final peer-reviewed publication - May, 2026
 
 ## Citation
 To cite the Consensus Pituitary Atlas, cite the publication in Cell Reports:
