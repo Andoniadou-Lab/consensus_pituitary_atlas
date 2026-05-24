@@ -81,8 +81,15 @@ To be finalised
 ## Epitome platform
 See our epitome platform, which hosts the Consensus Pituitary Atlas at epitome-atlas.com
 
-### Curator and first author
-Bence Kövér
-https://bsky.app/profile/bencekover.bsky.social
+## Acknowledgments
 
+This work was supported by the Wellcome Trust Advanced Therapies for Regenerative Medicine PhD Programme (218461/Z/19/Z). Special thanks to the Andoniadou Lab at King's College London and all contributors to the Consensus Pituitary Atlas.
+
+---
+
+**Developer and Lead Curator**: Bence Kövér  
+**Lab**: Andoniadou Lab, King's College London  
+**Contact**: bence.kover@kcl.ac.uk
+
+https://bsky.app/profile/bencekover.bsky.social
 https://www.linkedin.com/in/bence-kover/
