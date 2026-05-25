@@ -103,7 +103,11 @@ meta_data <- meta_data[meta_data$exptype != "parse",]
 expression_table <- expression_table[,meta_data$exptype != "multi_rna"]
 meta_data <- meta_data[meta_data$exptype != "multi_rna",]
 
-table(meta_data$Modality,meta_data$Comp_sex)
+#how many sra_id in each comp_sex
+print("female")
+print(length(unique(meta_data[meta_data$Comp_sex==0,]$SRA_ID)))
+print("male")
+print(length(unique(meta_data[meta_data$Comp_sex ==1,]$SRA_ID)))
 
 # Ensure valid column names for assignments and exptype
 meta_data$assignments <- make.names(meta_data$assignments)
@@ -239,9 +243,9 @@ fit <- eBayes(fit)
 # Get top differentially expressed genes
 top_genes <- topTable(fit, coef = "Stem_cells_sex",
                       number = Inf,lfc=1, adjust.method="BH")
-top_genes$genes <- rownames(top_genes)
+top_genes$genes <- rownames(top_genes) 
 #how many sig
-print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
+print(nrow(top_genes %>% dplyr::filter(adj.P.Val < 0.05 )))
 
 ```
 
@@ -251,24 +255,23 @@ print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
 
 cpdb <- read_csv("/Users/k23030440/epitome_code/epitome/data/gene_group_annotation/v_0.01/cpdb.csv")
 #keep where category is TF and keep gene
-tf_list <- cpdb %>% filter(category == "TF") %>% dplyr::select(gene) %>% distinct()
+tf_list <- cpdb %>% dplyr::filter(category == "TF") %>% dplyr::select(gene) %>% distinct()
 tf_list <- tf_list$gene
-tf_list
 
 print("Up TFs with male")
 #rank it by adj.P.val
-print(top_genes %>% filter(genes %in% tf_list & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+print(top_genes %>% dplyr::filter(genes %in% tf_list & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
 print("Down TFs with female")
-print(top_genes %>% filter(genes %in% tf_list & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+print(top_genes %>% dplyr::filter(genes %in% tf_list & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
 
 library(clipr)
 # Write the genes to clipboard, one per line
-up_genes <- top_genes %>% filter(logFC > 0 & adj.P.Val < 0.05)
-clipr::write_clip(paste(up_genes$gene, collapse = "\n"))
-down_genes <- top_genes %>% filter(logFC < 0 & adj.P.Val < 0.05)
-clipr::write_clip(paste(down_genes$gene, collapse = "\n"))
+up_genes <- top_genes %>% dplyr::filter(logFC > 0 & adj.P.Val < 0.05)
+#clipr::write_clip(paste(up_genes$gene, collapse = "\n"))
+down_genes <- top_genes %>% dplyr::filter(logFC < 0 & adj.P.Val < 0.05)
+#clipr::write_clip(paste(down_genes$gene, collapse = "\n"))
 background_genes <- rownames(dge)
-clipr::write_clip(paste(background_genes, collapse = "\n"))
+#clipr::write_clip(paste(background_genes, collapse = "\n"))
 
 
 #save these to /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sc_up_genes.csv
@@ -452,7 +455,7 @@ df
 #write
 write.csv(df,"/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes.csv")
 #only save those with abs log2fc > 1
-df_final <- df %>% filter(abs(logFC) > 1)
+df_final <- df %>% dplyr::filter(abs(logFC) > 1)
 df_final  <- df_final  %>%
   dplyr::select(-occurs)
 
@@ -499,7 +502,7 @@ df_common_male <- df %>%
 df_sex_genes_filtered <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes.csv")
 
 dim(df_sex_genes_filtered )
-df_sex_genes_filtered <- df_sex_genes_filtered %>% filter(abs(logFC) > 0)
+df_sex_genes_filtered <- df_sex_genes_filtered %>% dplyr::filter(abs(logFC) > 0)
 df_sex_genes_filtered <- df_sex_genes_filtered %>%
   dplyr::select(-occurs)
 df_sex_genes_filtered  <- df_sex_genes_filtered   %>%
@@ -507,7 +510,7 @@ df_sex_genes_filtered  <- df_sex_genes_filtered   %>%
   summarize(occurs = n_distinct(cell_type)) %>%
   left_join(df_sex_genes_filtered, by = "gene")
 
-df_sex_genes_filtered <-df_sex_genes_filtered %>% filter(occurs > 4)
+df_sex_genes_filtered <-df_sex_genes_filtered %>% dplyr::filter(occurs > 4)
 
 #keep only those where sign is same direction in all cases
 df_sex_genes_filtered <- df_sex_genes_filtered %>%
@@ -520,7 +523,7 @@ print(df_sex_genes_filtered %>% distinct(gene) %>% nrow())
 
 df_sex_genes <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes_raw.csv")
 #keep genes in df_sex_filtered
-df_sex_genes <- df_sex_genes %>% filter(gene %in% df_sex_genes_filtered$gene)
+df_sex_genes <- df_sex_genes %>% dplyr::filter(gene %in% df_sex_genes_filtered$gene)
 
 df_sex_genes <- df_sex_genes %>%
   group_by(gene) %>%
@@ -550,7 +553,7 @@ final_results <- final_results %>%
   ungroup()
 
 #remove genes starting with gm or ens !grepl("^Gm|^Gm[0-9]+$|^ENS" !grepl("Rik$"
-final_results <- final_results %>% filter(!grepl("^Gm|^ENS|Rik$", gene))
+final_results <- final_results %>% dplyr::filter(!grepl("^Gm|^ENS|Rik$", gene))
 
 
 final_results <- final_results %>%
@@ -574,7 +577,7 @@ genes_of_interest1_male <- unique(final_results[final_results$majority_sex == "m
 genes_of_interest1_female <- unique(final_results[final_results$majority_sex == "female",]$gene)[1:18]
 genes_of_interest1 <- c(genes_of_interest1_male, genes_of_interest1_female)
 
-final_results<- final_results %>% filter(gene %in% genes_of_interest1)
+final_results<- final_results %>% dplyr::filter(gene %in% genes_of_interest1)
 
 final_results <- final_results %>% arrange(desc(avg_log2fc))
 genes_of_interest <- unique(final_results$gene)[1:36]
@@ -636,11 +639,6 @@ ggsave("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Y
 ```
 
 # Comparing these new results against v1 results (pre-print version of the atlas)
-```{r}
-all_results <- read_csv("/Users/k23030440/epitome_code/epitome/data/sex_dimorphism/v_0.01/sexually_dimorphic_genes.csv")
-all_results
-
-```
 
 ```{r}
 all_results <- read_csv("/Users/k23030440/epitome_code/epitome/data/sex_dimorphism/v_0.02/sexually_dimorphic_genes.csv")
@@ -650,8 +648,8 @@ all_results_v1 = read_csv("/Users/k23030440/epitome_code/epitome/data/sex_dimorp
 table(all_results_v1$cell_type,all_results_v1$sex)
 
 #keep where abs log2fc > 1
-all_results <- all_results %>% filter(abs(logFC) > 1)
-all_results_v1 <- all_results_v1 %>% filter(abs(logFC) > 1)
+all_results <- all_results %>% dplyr::filter(abs(logFC) > 1)
+all_results_v1 <- all_results_v1 %>% dplyr::filter(abs(logFC) > 1)
 
 library(tidyverse)
 
@@ -690,8 +688,8 @@ plot_data <- gene_presence %>%
   count(cell_type, sex,category)
 
 # Split up and down
-plot_up <- plot_data %>% filter(sex == "male")
-plot_down <- plot_data %>% filter(sex == "female")
+plot_up <- plot_data %>% dplyr::filter(sex == "male")
+plot_down <- plot_data %>% dplyr::filter(sex == "female")
 
 
 

@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "Genomic annotations of TF binding motifs in stem cell associated peaks"
 author: "Bence Kover"
 date: "2026-02-26"
 output: html_document
@@ -82,10 +82,6 @@ all_seurat <- merge(seurat_object, y = c(seurat_object_multi),
 all_seurat<- JoinLayers(all_seurat)
 
 seurat_object<- all_seurat
-
-#save as /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/consensus_chromatin_landscape.csv
-write.csv(vars, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/consensus_chromatin_landscape.csv", row.names = FALSE)
-write.csv(vars, "/Users/k23030440/epitome_code/epitome/data/additional_downloads/consensus_chromatin_landscape/v_0.02/consensus_chromatin_landscape.csv", row.names = FALSE)
 
 root = "/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE_atac/"
 figs_folder = paste(root,"Figures/",sep="")

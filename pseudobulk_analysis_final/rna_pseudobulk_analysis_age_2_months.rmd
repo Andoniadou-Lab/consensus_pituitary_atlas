@@ -1,5 +1,5 @@
 ---
-title: "RNA pseudobulk analysis of age-dependent changes"
+title: "RNA pseudobulk analysis of age-dependent changes (>2 months)"
 author: "Bence Kover"
 date: "2026-01-27"
 output: html_document
@@ -121,7 +121,7 @@ dge = DGEList(counts = exp_table, group = meta_data$assignments)
 design <- model.matrix(~0 + assignments +  assignments:Age_numeric , data = meta_data)
 
 #remove genes expressed in less than 10% of the samples or with less than 1000 total counts
-keep_genes <-dplyr::filterByExpr(dge, design, min.total.count = 300,min.prop= 0.2)
+keep_genes <- filterByExpr(dge, design, min.total.count = 300,min.prop= 0.2)
 sum(keep_genes)
 
 dge <- dge[keep_genes, ]
@@ -170,7 +170,6 @@ diff_expression <- eBayes(diff_expression, robust=TRUE)
 # Get top differentially expressed genes
 top_genes <- topTable(diff_expression, number = Inf, adjust.method="bonf")
 top_genes$genes <- rownames(top_genes)
-print(rownames((top_genes)))
 
 #how many sig
 print(nrow(top_genes %>% dplyr::filter(adj.P.Val < 0.05 )))
@@ -335,7 +334,7 @@ write.csv(final_results_pan_pit, "/Users/k23030440/Library/CloudStorage/OneDrive
 #clipboard gene names
 unique_pan_pit_genes = final_results_pan_pit$genes
 library(clipr)
-write_clip(paste(unique_pan_pit_genes, collapse = "\n"))
+#write_clip(paste(unique_pan_pit_genes, collapse = "\n"))
 
 ```
 
@@ -538,8 +537,6 @@ print(plt)
 # Show how the >2 months results overlap with the full age-dependent gene list. This shows that much fewer genes are picked up and that these mostly increase, not decrease.
 
 ```{r}
-
-
 
 final_results <- read.csv(paste0("/Users/k23030440/epitome_code/epitome/data/aging/v_0.02/aging_genes_2_month.csv"), header = TRUE, stringsAsFactors = FALSE)
 final_results_all_ages <- read.csv(paste0("/Users/k23030440/epitome_code/epitome/data/aging/v_0.02/aging_genes.csv"), header = TRUE, stringsAsFactors = FALSE)

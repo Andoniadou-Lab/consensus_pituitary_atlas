@@ -73,17 +73,13 @@ library(edgeR)
 meta_data$assignments <- make.names(meta_data$assignments)
 meta_data$exptype <- make.names(meta_data$Modality)
 
-
 # Remove any remaining problematic characters
 meta_data$assignments <- gsub("[^A-Za-z0-9_]", "", meta_data$assignments)
 meta_data$exptype <- gsub("[^A-Za-z0-9_]", "", meta_data$exptype)
 
-
 #remove where assignment is Blood
 expression_table <- expression_table[,meta_data$assignments != "Erythrocytes"]
 meta_data <- meta_data[meta_data$assignments != "Erythrocytes",]
-
-
 
 #if author is Rebboah et al. (2025) remove if assignments is Pituicytes, Immune_cells, Endothelial_cells, Mesenchymal_cells
 table(meta_data$Author, meta_data$assignments)
@@ -124,7 +120,6 @@ meta_data$index <- 1:nrow(meta_data)
 #make index the rownames
 rownames(meta_data) <- meta_data$index
 
-
 print(length(unique(meta_data$SRA_ID)))
 
 print(length(unique(meta_data$SRA_ID)))
@@ -139,8 +134,9 @@ print(length(unique(meta_data$SRA_ID)))
 meta_data %>%
   #filter where exptype is not parse
   dplyr::filter(exptype != "parse") %>%
+  dplyr::filter(exptype != "multi_rna") %>%
   dplyr::filter(Age_numeric > 10) %>%
-  dplyr::filter(Age_numeric < 150) %>%
+  dplyr::filter(Age_numeric < 200) %>%
   dplyr::distinct(SRA_ID, Comp_sex) %>%  
   #filter where Age_numeric >0
   dplyr::count(Comp_sex, name = "num_SRA_IDs")
@@ -161,6 +157,8 @@ meta_data %>%
   dplyr::count(exptype, name = "num_SRA_IDs")
 
 ```
+
+
 ```{r}
 expression_table <- sweep(expression_table, 2, meta_data$psbulk_n_cells, "/")
 
@@ -401,7 +399,6 @@ fit <- eBayes(fit)
 
 
 ```{r}
-
 ###
 # Make column names valid
 colnames(design) <- make.names(colnames(design), unique = TRUE)
@@ -427,27 +424,20 @@ coef_df$gene = rownames(coef_df)
 
 
 ```{r}
-
 top_genes <- topTable(fit, coef="assignmentsStem_cells__assignmentsThyrotrophs", number = Inf, sort.by = "P",adjust.method="BH", lfc=0.25)
 top_genes$genes <- rownames(top_genes)
 print(head(top_genes,20))
-
 
 top_genes <- top_genes %>% dplyr::mutate(abs_logFC = abs(logFC))
 
 #hist
 hist(top_genes$abs_logFC, breaks=50, main="lfc distribution", xlab="abs logFC")
 
-#how many sig
-top_genes %>% filter(adj.P.Val < 0.05)
-
 # Initialize a list to store upregulated genes for each cell type
 all_upregulated_genes <- list()
 
 # Get unique cell types
 celltypes <- unique(meta_data$assignments)
-
-
 ```
 
 # Define function that compares expression between a given cell type vs every other cell types
@@ -465,7 +455,7 @@ compare_celltype <- function(celltype, other_celltypes, design, fit, log2fc=-Inf
 
     sig_genes <- topTable(fit, coef=contrast_name_final, number = Inf, sort.by = "P",adjust.method="BH", lfc=0.5) %>%
       rownames_to_column("gene") %>%
-      filter(adj.P.Val < 0.05 & logFC > log2fc) %>%
+      dplyr::filter(adj.P.Val < 0.05 & logFC > log2fc) %>%
       dplyr::mutate(group1 = celltype,
              group2 = other)
     
@@ -540,7 +530,6 @@ find_significant_genes <- function(all_comparisons, groupings1, groupings2, adj_
   print(groupings1)
   print(groupings2)
   
-  
   for (i in 1:length(groupings1)) {
     for (j in 1:length(groupings2)) {
       comps_left <- c(comps_left, groupings1[[i]])
@@ -577,13 +566,13 @@ find_significant_genes <- function(all_comparisons, groupings1, groupings2, adj_
   # Only keep genes that occur in all comparisons - meaning n_comps times
   sig_genes_list <- sig_genes_list %>% 
     group_by(gene) %>%
-    filter(n() == n_comps) %>%
+    dplyr::filter(n() == n_comps) %>%
     ungroup()
   
   # Only keep genes where the direction is the same in all comparisons
   sig_genes_list <- sig_genes_list %>% 
     group_by(gene) %>%
-    filter(n_distinct(direction) == 1) %>%
+    dplyr::filter(n_distinct(direction) == 1) %>%
     ungroup()
   
   #add column mean_log2fc
@@ -634,25 +623,25 @@ all_results <- do.call(rbind, results_list)
 
 cpdb <- read_csv("/Users/k23030440/epitome_code/epitome/data/gene_group_annotation/v_0.01/cpdb.csv")
 #keep where category is TF and keep gene
-tf_list <- cpdb %>% filter(category == "TF") %>% select(gene) %>% distinct()
+tf_list <- cpdb %>% dplyr::filter(category == "TF") %>% dplyr::select(gene) %>% distinct()
 tf_list <- tf_list$gene
 options(dplyr.print_max = 50)
 
 for (i in 1:8) {
-  grouping_results <- all_results %>% filter(grouping == paste0("grouping_", i))
+  grouping_results <- all_results %>% dplyr::filter(grouping == paste0("grouping_", i))
   cat("\nGrouping", i, "results:\n")
   cat("Number of significant genes:", nrow(grouping_results), "\n")
   if (nrow(grouping_results) > 0) {
     print("Tfs up")
     # Print up to 20 rows by using print() with n parameter
     print(grouping_results %>% 
-            filter(gene %in% tf_list & direction == "up") %>% 
+            dplyr::filter(gene %in% tf_list & direction == "up") %>% 
             arrange(geom_mean_adj_pval),
           n = 50)
     
     print("Tfs down")
     print(grouping_results %>% 
-            filter(gene %in% tf_list & direction == "down") %>% 
+            dplyr::filter(gene %in% tf_list & direction == "down") %>% 
             arrange(geom_mean_adj_pval),
           n = 50)
   }
@@ -699,8 +688,8 @@ all_results_v1 <- all_results_v1 %>%
 
 # Keep only relevant columns (adjust if needed)
 all_combined <- bind_rows(
-  all_results_v1 %>% select(grouping, direction, gene, version),
-  all_results_v2 %>% select(grouping, direction, gene, version)
+  all_results_v1 %>% dplyr::select(grouping, direction, gene, version),
+  all_results_v2 %>% dplyr::select(grouping, direction, gene, version)
 )
 
 # Determine whether gene appears in v1, v2 or both
@@ -725,8 +714,8 @@ plot_data <- gene_presence %>%
   count(grouping, direction, category)
 
 # Split up and down
-plot_up <- plot_data %>% filter(direction == "up")
-plot_down <- plot_data %>% filter(direction == "down")
+plot_up <- plot_data %>% dplyr::filter(direction == "up")
+plot_down <- plot_data %>% dplyr::filter(direction == "down")
 
 
 
@@ -777,20 +766,20 @@ all_results_v1 <- all_results_v1 %>%
 
 # Combine
 all_combined <- bind_rows(
-  all_results_v1 %>% select(grouping, direction, gene, geom_mean_adj_pval, version),
-  all_results_v2 %>% select(grouping, direction, gene, geom_mean_adj_pval, version)
+  all_results_v1 %>% dplyr::select(grouping, direction, gene, geom_mean_adj_pval, version),
+  all_results_v2 %>% dplyr::select(grouping, direction, gene, geom_mean_adj_pval, version)
 )
 
 # Keep genes present in both
 both_data <- all_combined %>%
   distinct(grouping, direction, gene, version, .keep_all = TRUE) %>%
   group_by(grouping, direction, gene) %>%
-  filter(n_distinct(version) == 2) %>%
+  dplyr::filter(n_distinct(version) == 2) %>%
   ungroup()
 
 # Spread v1 and v2 into columns
 both_wide <- both_data %>%
-  select(grouping, direction, gene, version, geom_mean_adj_pval) %>%
+  dplyr::select(grouping, direction, gene, version, geom_mean_adj_pval) %>%
   pivot_wider(
     names_from = version,
     values_from = geom_mean_adj_pval
@@ -876,9 +865,6 @@ Matrix::writeMM(normalized_expression, paste0("/Users/k23030440/epitome_code/epi
 write_csv(meta_data_original, paste0("/Users/k23030440/epitome_code/epitome/data/expression/",version,"/meta_data.csv"))
 write.table(rownames(normalized_expression), paste0("/Users/k23030440/epitome_code/epitome/data/expression/",version,"/genes.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
 write.table(colnames(normalized_expression), paste0("/Users/k23030440/epitome_code/epitome/data/expression/",version,"/datasets.txt"), row.names = FALSE, col.names = FALSE, quote = FALSE)
-
-rownames(normalized_expression)
-
 ```
 
 
@@ -1338,7 +1324,7 @@ for (i in 1:nrow(all_markers_df)) {
 }
 
 #keep those with at least 5 > avg_exp
-#all_markers_df <- all_markers_df %>% filter(avg_exp > 5)
+#all_markers_df <- all_markers_df %>% dplyr::filter(avg_exp > 5)
 
 celltypes <- unique(all_markers_df$celltype)
 
@@ -1350,7 +1336,7 @@ for (ct in celltypes) {
 markers_df <- all_markers_df %>% dplyr::select(gene, log2fc,celltype, avg_exp, pval) %>% arrange(celltype, pval)
 
 # Remove rows with NA genes
-markers_df <- markers_df %>% filter(!is.na(gene))
+markers_df <- markers_df %>% dplyr::filter(!is.na(gene))
 
 # Print summary
 print(table(markers_df$celltype))
@@ -1373,15 +1359,15 @@ print(head(design))
 
 
 markers<- markers_df %>%
-  filter(celltype == "Stem_cells") %>%
-  select(gene)
+  dplyr::filter(celltype == "Stem_cells") %>%
+  dplyr::select(gene)
 #convert to ordinary list
 markers <- markers$gene
 markers <- as.character(markers)
 
 #print top5 for each cell type
 for (ct in celltypes) {
-  print(markers_df %>% filter(celltype == ct) %>% head(5))
+  print(markers_df %>% dplyr::filter(celltype == ct) %>% head(5))
 }
 ```
 
@@ -1409,20 +1395,20 @@ new_markers_not_in_cellassign <- read.csv("/Users/k23030440/Library/CloudStorage
 new_markers_not_in_cellassign <- new_markers_not_in_cellassign %>% arrange(pval) 
 
 for (ct in celltypes) {
-  print(new_markers_not_in_cellassign %>% filter(celltype == ct)%>% filter(avg_exp > 3) %>% arrange(desc(log2fc)) %>% head(9) )
+  print(new_markers_not_in_cellassign %>% dplyr::filter(celltype == ct)%>% dplyr::filter(avg_exp > 3) %>% arrange(desc(log2fc)) %>% head(9) )
 }
 
 
 #keep only where gene is in new_markers_not_in_cellassign
-plot_markers_df <- all_markers_df %>% filter(gene %in% new_markers_not_in_cellassign$gene)
+plot_markers_df <- all_markers_df %>% dplyr::filter(gene %in% new_markers_not_in_cellassign$gene)
 #order by lowest pval first
 plot_markers_df <- plot_markers_df %>% arrange(pval)
 
 
 #remove Nr5a1os
-plot_markers_df <- plot_markers_df %>% filter(gene != "Nr5a1os")
+plot_markers_df <- plot_markers_df %>% dplyr::filter(gene != "Nr5a1os")
 for (ct in celltypes) {
-  print(plot_markers_df  %>% filter(celltype == ct) %>% select(gene,celltype) %>% head(5))
+  print(plot_markers_df  %>% dplyr::filter(celltype == ct) %>% dplyr::select(gene,celltype) %>% head(5))
   
 }
 
@@ -1448,8 +1434,8 @@ all_results_v1 <- all_results_v1 %>%
 
 # Keep only relevant columns (adjust if needed)
 all_combined <- bind_rows(
-  all_results_v1 %>% select(celltype,  gene, version),
-  all_results_v2 %>% select(celltype,  gene, version)
+  all_results_v1 %>% dplyr::select(celltype,  gene, version),
+  all_results_v2 %>% dplyr::select(celltype,  gene, version)
 )
 
 # Determine whether gene appears in v1, v2 or both
@@ -1506,20 +1492,20 @@ all_results_v1 <- all_results_v1 %>%
 
 # Combine
 all_combined <- bind_rows(
-  all_results_v1 %>% select(celltype, gene, pval, version),
-  all_results_v2 %>% select(celltype, gene, pval, version)
+  all_results_v1 %>% dplyr::select(celltype, gene, pval, version),
+  all_results_v2 %>% dplyr::select(celltype, gene, pval, version)
 )
 
 # Keep genes present in both
 both_data <- all_combined %>%
   distinct(celltype, gene, version, .keep_all = TRUE) %>%
   group_by(celltype, gene) %>%
-  filter(n_distinct(version) == 2) %>%
+  dplyr::filter(n_distinct(version) == 2) %>%
   ungroup()
 
 # Spread v1 and v2 into columns
 both_wide <- both_data %>%
-  select(celltype, gene, version, pval) %>%
+  dplyr::select(celltype, gene, version, pval) %>%
   pivot_wider(
     names_from = version,
     values_from = pval

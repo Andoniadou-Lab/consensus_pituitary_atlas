@@ -73,7 +73,7 @@ process_results <- function(results, database_name, pval_cutoff = 0.05) {
 
 #load coef
 coefs_table <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/coef_2026_02_14.csv")
-coefs_table
+head(coefs_table)
 background = coefs_table$X
 ```
 
@@ -979,6 +979,8 @@ process_results <- function(results, database_name, pval_cutoff = 0.05) {
 #ageing res with temporal res
 ageing_res = read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/temporal_patterns/temporal_patterns.csv")
 
+#cell_type == Stem_cells
+ageing_res = ageing_res[ageing_res["cell_type"]=="Stem_cells",]
 
 #perform the enrichment
 

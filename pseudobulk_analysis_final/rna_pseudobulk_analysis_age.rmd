@@ -86,18 +86,15 @@ meta_data <- meta_data[meta_data$Age_numeric >= 0,]
 
 meta_data$Age_numeric <- log10(meta_data$Age_numeric)
 
-
 # Ensure valid column names for assignments and exptype
 meta_data$assignments <- make.names(meta_data$assignments)
 meta_data$exptype <- make.names(meta_data$Modality)
 meta_data$Sex <- make.names(meta_data$Comp)
 
-
 # Remove any remaining problematic characters
 meta_data$assignments <- gsub("[^A-Za-z0-9_]", "", meta_data$assignments)
 meta_data$exptype <- gsub("[^A-Za-z0-9_]", "", meta_data$exptype)
 meta_data$Sex <- gsub("[^A-Za-z0-9_]", "", meta_data$Sex)
-
 
 #add a new column called index
 meta_data$index <- 1:nrow(meta_data)
@@ -166,10 +163,9 @@ diff_expression <- eBayes(diff_expression, robust=TRUE)
 # Get top differentially expressed genes
 top_genes <- topTable(diff_expression, number = Inf, adjust.method="bonf")
 top_genes$genes <- rownames(top_genes)
-print(rownames((top_genes)))
 
 #how many sig
-print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
+print(nrow(top_genes %>% dplyr::filter(adj.P.Val < 0.05 )))
 
 head(top_genes)
 ```
@@ -180,29 +176,29 @@ head(top_genes)
 cpdb <- read_csv("/Users/k23030440/epitome_code/epitome/data/gene_group_annotation/v_0.01/cpdb.csv")
 head(cpdb)
 #keep where category is TF and keep gene
-tf_list <- cpdb %>% filter(category == "TF") %>% select(gene) %>% distinct()
+tf_list <- cpdb %>% dplyr::filter(category == "TF") %>% dplyr::select(gene) %>% distinct()
 tf_list <- tf_list$gene
 
 print("Top up genes")
-print(top_genes %>% filter(logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+print(top_genes %>% dplyr::filter(logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
 print("Top down genes")
-print(top_genes %>% filter(logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+print(top_genes %>% dplyr::filter(logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
 
 print("Up TFs with time")
 #rank it by adj.P.val
-print(top_genes %>% filter(genes %in% tf_list & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+print(top_genes %>% dplyr::filter(genes %in% tf_list & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
 print("Down TFs with time")
-print(top_genes %>% filter(genes %in% tf_list & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+print(top_genes %>% dplyr::filter(genes %in% tf_list & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
 
 print("Up with time")
 #rank it by adj.P.val
-print(top_genes %>% filter( logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+print(top_genes %>% dplyr::filter( logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
 print("Down  with time")
-print(top_genes %>% filter( logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
+print(top_genes %>% dplyr::filter( logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val))
 
 #save these tfs up and down
-tfs_up = top_genes %>% filter(genes %in% tf_list & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
-tfs_down = top_genes %>% filter(genes %in% tf_list & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+tfs_up = top_genes %>% dplyr::filter(genes %in% tf_list & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+tfs_down = top_genes %>% dplyr::filter(genes %in% tf_list & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
 
 tfs_up
 
@@ -219,21 +215,21 @@ write.csv(tfs_down, "/Users/k23030440/Library/CloudStorage/OneDrive-King'sColleg
 
 cpdb <- read_csv("/Users/k23030440/epitome_code/epitome/data/gene_group_annotation/v_0.01/cpdb.csv")
 #keep where category is TF and keep gene
-ligands  <- cpdb %>% filter(category == "ligand") %>% select(gene) %>% distinct()
+ligands  <- cpdb %>% dplyr::filter(category == "ligand") %>% dplyr::select(gene) %>% distinct()
 ligands <- ligands$gene
-receptors  <- cpdb %>% filter(category == "receptor") %>% select(gene) %>% distinct()
+receptors  <- cpdb %>% dplyr::filter(category == "receptor") %>% dplyr::select(gene) %>% distinct()
 receptors <- receptors$gene
 
 #ligands /Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/CellChatDBmouse.csv
-ligands_up = top_genes %>% filter(genes %in% ligands & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
-ligands_down = top_genes %>% filter(genes %in% ligands & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+ligands_up = top_genes %>% dplyr::filter(genes %in% ligands & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+ligands_down = top_genes %>% dplyr::filter(genes %in% ligands & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
 ligands_up
 ligands_down
 
 
 #receptors
-receptors_up = top_genes %>% filter(genes %in% receptors & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
-receptors_down = top_genes %>% filter(genes %in% receptors & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+receptors_up = top_genes %>% dplyr::filter(genes %in% receptors & logFC > 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
+receptors_down = top_genes %>% dplyr::filter(genes %in% receptors & logFC < 0 & adj.P.Val < 0.05) %>% arrange(adj.P.Val)
 receptors_up
 receptors_down
 
@@ -281,7 +277,7 @@ for(coef in coefs) {
   #print cell type
   print(get_cell_type(coef))
   #print number of significant genes
-  print(nrow(top_genes %>% filter(adj.P.Val < 0.05 )))
+  print(nrow(top_genes %>% dplyr::filter(adj.P.Val < 0.05 )))
   
   # Add cell type column
   top_genes$cell_type <- get_cell_type(coef)
@@ -300,7 +296,7 @@ rownames(final_results) <- NULL
 version = "v_0.02"
 #filter final results for logFC > 0.5 or < -0.5 and adj.P.Val < 0.05
 
-final_results_to_save = final_results %>% filter((abs(logFC) >= 0.5) & (adj.P.Val < 0.05))
+final_results_to_save = final_results %>% dplyr::filter((adj.P.Val < 0.05))
 #print total sig
 print(nrow(final_results_to_save))
 write.csv(final_results_to_save, paste0("/Users/k23030440/epitome_code/epitome/data/aging/v_0.02/aging_genes.csv"))
@@ -327,6 +323,12 @@ final_results_pan_pit <- final_results_pan_pit[!duplicated(final_results_pan_pit
 final_results_pan_pit <- final_results_pan_pit[final_results_pan_pit$gene_count >= 3,]
 final_results_pan_pit
 
+#for our information, how many genes are significant in at least 5 cell types
+print("Number of genes significant and up in at least 5 cell types:")
+print(nrow(final_results_pan_pit[(final_results_pan_pit$gene_count >= 5) & final_results_pan_pit$avg_logFC > 0, ]))
+print("Number of genes significant and down in at least 5 cell types:")
+print(nrow(final_results_pan_pit[(final_results_pan_pit$gene_count >= 5) & final_results_pan_pit$avg_logFC < 0, ]))
+
 #order according to gene_count
 final_results_pan_pit <- final_results_pan_pit[order(final_results_pan_pit$gene_count, decreasing = TRUE),]
 
@@ -336,7 +338,7 @@ write.csv(final_results_pan_pit, "/Users/k23030440/Library/CloudStorage/OneDrive
 #clipboard gene names
 unique_pan_pit_genes = final_results_pan_pit$genes
 library(clipr)
-write_clip(paste(unique_pan_pit_genes, collapse = "\n"))
+#write_clip(paste(unique_pan_pit_genes, collapse = "\n"))
 
 ```
 
@@ -359,7 +361,7 @@ genes_of_interest <- genes_of_interest[genes_of_interest %in% final_results_pan_
 # Create the heatmap
 plot <- final_results %>%
   # Filter to only include genes of interest
-  filter(genes %in% genes_of_interest) %>%
+  dplyr::filter(genes %in% genes_of_interest) %>%
   # Create a significance flag and preserve input order
   dplyr::mutate(is_significant = adj.P.Val < 0.05,
                 # Add line thickness variable
@@ -551,7 +553,7 @@ aging
 library(Matrix)
 library(readr)
 
-version="v_0.01"
+version="v_0.02"
 # 1. Load the matrix
 normalized_expression <- Matrix::readMM(paste0("/Users/k23030440/epitome_code/epitome/data/expression/", version, "/normalized_data.mtx"))
 
@@ -598,7 +600,6 @@ data_list <- get_values("Stem_cells", "H19", meta_data, normalized_expression)
 # Define function that identifies tha temporal trajectory associated with the given cell type - gene combination
 
 ```{r}
-
 analyze_gene_pattern <- function(data_list, verbose = TRUE) {
   library(segmented)
   
@@ -763,7 +764,7 @@ dim(aging)
 aging = aging[aging$adj.P.Val < 0.05, ]
 
 #keep only Stem_cells
-aging = aging[aging$cell_type == cell_type, ]
+#aging = aging[aging$cell_type == cell_type, ]
 
 
 data_h19 <- get_values(cell_type,gene, meta_data, normalized_expression)
@@ -830,8 +831,9 @@ final_summary_df= read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'
 # 4. View results
 head(final_summary_df)
 table(final_summary_df$change_pattern)
-
-
+#subset to stem cells
+final_summary_df <- final_summary_df[final_summary_df$cell_type == "Stem_cells", ]
+table(final_summary_df$change_pattern)
 # 2. Rename columns for clarity (optional but helpful)
 colnames(plot_data) <- c("Pattern", "Count")
 ```
@@ -919,6 +921,15 @@ for (pattern in unique(final_summary_df$change_pattern)) {
   print(gene_name)
   g = plot_gene_models(data_example, gene_label = paste(gene_name, "in", cell_type), type_label = pattern)
   show(g)
+  
+  example_row <- final_summary_df[final_summary_df$change_pattern == pattern, ][3, ]
+  gene_name <- example_row$gene
+  cell_type <- example_row$cell_type
+  message(paste("Example for pattern", pattern, "-> Gene:", gene_name, ", Cell Type:", cell_type))
+  data_example <- get_values(cell_type, gene_name, meta_data, normalized_expression)
+  print(gene_name)
+  g = plot_gene_models(data_example, gene_label = paste(gene_name, "in", cell_type), type_label = pattern)
+  show(g)
 }
 ```
 
@@ -950,27 +961,64 @@ save_gene_plots_dual <- function(cell_type, gene, base_path, meta_data, expressi
 
 ```{r}
 
-save_gene_plots_dual("Stem_cells", "H2-D1", 
+#decrease stagnate
+save_gene_plots_dual("Stem_cells", "H19", 
                "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/figures/revision_figures/Sostdc1_Stem_cells", 
                meta_data, normalized_expression)
 
-save_gene_plots_dual("Stem_cells", "Folh1", 
+#stagnate decrease
+save_gene_plots_dual("Stem_cells", "Panx1", 
                      "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/figures/revision_figures/Csmd1_Stem_cells", 
                      meta_data, normalized_expression)
 
-save_gene_plots_dual("Stem_cells", "Car13", 
+#increase stagnate
+save_gene_plots_dual("Stem_cells", "H2-K1", 
                      "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/figures/revision_figures/H2-K1_Stem_cells", 
                      meta_data, normalized_expression)
 
-save_gene_plots_dual("Stem_cells", "Sostdc1", 
+#steady increase
+save_gene_plots_dual("Stem_cells", "Folh1", 
                      "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/figures/revision_figures/Folh1_Stem_cells", 
                      meta_data, normalized_expression)
 
-save_gene_plots_dual("Stem_cells", "Csmd1", 
+#steadily decrase Ezh2
+save_gene_plots_dual("Stem_cells", "Ezh2", 
                      "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/figures/revision_figures/Il6_Stem_cells", 
                      meta_data, normalized_expression)
 
-save_gene_plots_dual("Stem_cells", "Mcrs1", 
+#Rab3c - stagnate - incrase
+save_gene_plots_dual("Stem_cells", "Rab3c", 
                      "/Users/k23030440/Library/CloudStorage/OneDrive-King\'sCollegeLondon/PhD/Year_two/Aim\ 1/figures/revision_figures/Mcrs1_Stem_cells", 
                      meta_data, normalized_expression)
 ```
+
+
+```{r}
+# Add temporal patterns to aging_genes list
+aging_res = read.csv("/Users/k23030440/epitome_code/epitome/data/aging/v_0.02/aging_genes.csv")
+temporal_res = read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/temporal_patterns/temporal_patterns.csv", 
+                        header = TRUE, stringsAsFactors = FALSE)
+
+# Merge using dplyr (handles the column name mismatch: 'genes' vs 'gene')
+library(dplyr)
+
+aging_res <- aging_res %>%
+  left_join(
+    temporal_res %>% select(gene, cell_type, change_pattern),
+    by = c("genes" = "gene", "cell_type" = "cell_type")
+  ) %>%
+  mutate(change_pattern = ifelse(is.na(change_pattern), "minimal_logFC", change_pattern))
+
+# Check the result
+head(aging_res)
+table(aging_res$change_pattern)
+
+#save it back as aging_genes_temporal.csv
+write.csv(aging_res, "/Users/k23030440/epitome_code/epitome/data/aging/v_0.02/aging_genes_temporal.csv", row.names = FALSE)
+```
+```{r}
+#table for Stem_cells
+table(aging_res$change_pattern[aging_res$cell_type == "Stem_cells"])
+```
+
+
