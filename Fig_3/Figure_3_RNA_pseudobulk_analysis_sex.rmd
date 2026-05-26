@@ -492,7 +492,7 @@ df_common_male <- df %>%
 ```
 
 
-# Make a heatmap of genes that occur in the most cell types, but showing this in a balanced way (18 for male bias, 18 for female bias)
+# Make a heatmap of genes that occur in the most cell types, but showing this in a balanced way (18 for male bias, 18 for female bias). Also printing the number of unique genes.
 
 ```{r}
 #####
@@ -515,11 +515,12 @@ df_sex_genes_filtered <-df_sex_genes_filtered %>% dplyr::filter(occurs > 4)
 #keep only those where sign is same direction in all cases
 df_sex_genes_filtered <- df_sex_genes_filtered %>%
   group_by(gene) %>%
-  filter(all(logFC > 0) | all(logFC < 0)) %>%
+  filter(all(logFC > 0) | all(logFC < -0)) %>%
   ungroup()
 
 #how many unique genes
 print(df_sex_genes_filtered %>% distinct(gene) %>% nrow())
+length(unique(df_sex_genes_filtered$gene))
 
 df_sex_genes <- read.csv("/Users/k23030440/Library/CloudStorage/OneDrive-King'sCollegeLondon/PhD/Year_two/Aim 1/DE/sexually_dimorphic_genes_raw.csv")
 #keep genes in df_sex_filtered
@@ -546,27 +547,32 @@ library(dplyr)
 library(ggplot2)
 library(tidyr)
 
-#only keep those that are avg abs logfc > 1
+
+
+# Only keep those with avg abs logFC > 0 and compute per-gene avg
 final_results <- final_results %>%
   group_by(gene) %>%
   mutate(avg_abs_log2fc = mean(abs(logFC), na.rm = TRUE)) %>%
   ungroup()
 
-#remove genes starting with gm or ens !grepl("^Gm|^Gm[0-9]+$|^ENS" !grepl("Rik$"
-final_results <- final_results %>% dplyr::filter(!grepl("^Gm|^ENS|Rik$", gene))
-
-
+# Remove genes starting with Gm, ENS, or ending in Rik
 final_results <- final_results %>%
+  dplyr::filter(!grepl("^Gm|^ENS|Rik$", gene))
+
+# Determine majority sex per gene (which sex has higher mean abs logFC)
+majority_sex_df <- final_results %>%
   group_by(gene, sex) %>%
-  summarise(
-    mean_abs_log2fc = mean(abs(logFC), na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
+  summarise(mean_abs_log2fc = mean(abs(logFC), na.rm = TRUE), .groups = "drop") %>%
   group_by(gene) %>%
   slice_max(mean_abs_log2fc, n = 1, with_ties = FALSE) %>%
-  rename(majority_sex = sex) %>%
-  dplyr::select(gene, majority_sex) %>%
-  right_join(final_results, by = "gene")
+  ungroup() %>%
+  dplyr::select(gene, majority_sex = sex)
+
+# Join back into final_results (left_join is safer than right_join here)
+final_results <- final_results %>%
+  left_join(majority_sex_df, by = "gene")
+
+
 
 #keep top 30 genes with highest abs logFC
 final_results <- final_results %>% arrange(desc(avg_abs_log2fc))
