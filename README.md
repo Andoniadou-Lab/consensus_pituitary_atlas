@@ -75,7 +75,7 @@ Jupyter notebooks, R markdowns and corresponding HTML files for all analyses pre
 
 ## Citation
 To cite the Consensus Pituitary Atlas, cite the publication in Cell Reports:
-To be finalised
+Kövér, B., Willis, T.L., Sherwin, O., Kaufman-Cook, J., Kemkem, Y., Segoviano, M.V., Lodge, E.J., Zamojski, M., Mendelev, N., Zhang, Z., et al. (2026). Consensus Pituitary Atlas, a scalable resource for annotation, novel marker discovery, and analyses in mouse pituitary gland research. Cell Rep. 45. https://doi.org/10.1016/j.celrep.2026.117407. 
 
 
 ## Epitome platform
