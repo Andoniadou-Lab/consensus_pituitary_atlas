@@ -87,8 +87,10 @@ This work was supported by the Wellcome Trust Advanced Therapies for Regenerativ
 
 ---
 
-**Developer and Lead Curator**: Bence Kövér  
-**Lab**: Andoniadou Lab, King's College London  
+**Developer and Lead Curator**: Bence Kövér
+
+**Lab**: Andoniadou Lab, King's College London
+
 **Contact**: bence.kover@kcl.ac.uk
 
 https://bsky.app/profile/bencekover.bsky.social
